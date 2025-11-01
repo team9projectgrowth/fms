@@ -68,8 +68,14 @@ export interface Category {
   id: string;
   name: string;
   description?: string;
+  icon?: string;
+  color?: string;
+  keywords?: string[];
+  ai_available?: boolean;
+  sort_order?: number;
   active: boolean;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Priority {
