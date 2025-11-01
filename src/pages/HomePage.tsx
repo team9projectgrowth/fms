@@ -12,7 +12,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
     {
       name: 'Sarah Johnson',
       role: 'CEO, TechStart Inc',
-      content: 'TechFlow transformed our business operations. Their solutions are innovative and incredibly reliable.',
+      content: 'Sahayak transformed our business operations. Their solutions are innovative and incredibly reliable.',
       rating: 5,
       company: 'TechStart'
     },
@@ -42,13 +42,6 @@ export default function HomePage({ onNavigate }: HomePageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <div className="bg-primary text-white py-3">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <p className="text-sm">
-            👉 <strong>Access Facility Management Dashboard:</strong> Click "Dashboard Login" above | Use <code className="bg-white/20 px-2 py-1 rounded">admin@company.com</code> for Admin or <code className="bg-white/20 px-2 py-1 rounded">executor@company.com</code> for Executor
-          </p>
-        </div>
-      </div>
       <section className="relative bg-gradient-to-br from-teal-50 via-blue-50 to-purple-50 overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-32">
           <div className="grid md:grid-cols-2 gap-12 items-center">
@@ -215,7 +208,7 @@ export default function HomePage({ onNavigate }: HomePageProps) {
             Ready to Transform Your Business?
           </h2>
           <p className="text-xl mb-8 opacity-90">
-            Join thousands of companies already using TechFlow to accelerate their growth.
+            Join thousands of companies already using Sahayak to accelerate their growth.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button

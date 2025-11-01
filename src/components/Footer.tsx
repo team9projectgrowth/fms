@@ -14,7 +14,7 @@ export default function Footer({ onNavigate }: FooterProps) {
               <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
                 T
               </div>
-              <span className="ml-3 text-xl font-bold text-white">TechFlow</span>
+              <span className="ml-3 text-xl font-bold text-white">Sahayak</span>
             </div>
             <p className="text-sm">
               Empowering businesses with innovative technology solutions for a better tomorrow.
@@ -94,7 +94,7 @@ export default function Footer({ onNavigate }: FooterProps) {
 
         <div className="border-t border-gray-800 mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
           <p className="text-sm">
-            © 2025 TechFlow. All rights reserved.
+            © 2025 Sahayak. All rights reserved.
           </p>
           <div className="flex space-x-4 mt-4 md:mt-0">
             <a href="#" className="hover:text-teal-400 transition-colors">

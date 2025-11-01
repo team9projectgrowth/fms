@@ -33,6 +33,7 @@ function App() {
   const [showUserForm, setShowUserForm] = useState(false);
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [userFormType, setUserFormType] = useState<string>('complainant');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleNavigate = (page: string, param?: string) => {
     if (page === 'executor-ticket') {
@@ -104,9 +105,9 @@ function App() {
       case 'admin-tickets':
         return <AdminAllTickets onNavigate={handleNavigate} />;
       case 'complainants':
-        return <UserManagementComplainants onNavigate={handleNavigate} />;
+        return <UserManagementComplainants key={refreshTrigger} onNavigate={handleNavigate} />;
       case 'executors':
-        return <UserManagementExecutors onNavigate={handleNavigate} />;
+        return <UserManagementExecutors key={refreshTrigger} onNavigate={handleNavigate} />;
       case 'config-categories':
         return <ConfigCategories />;
       case 'config-allocation':
@@ -155,6 +156,9 @@ function App() {
           onClose={() => {
             setShowUserForm(false);
             setEditUserId(null);
+          }}
+          onSuccess={() => {
+            setRefreshTrigger(prev => prev + 1);
           }}
         />
       )}

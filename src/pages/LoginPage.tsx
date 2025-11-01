@@ -31,7 +31,7 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
               T
             </div>
             <h2 className="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
-            <p className="text-gray-600">Sign in to your TechFlow account</p>
+            <p className="text-gray-600">Sign in to your Sahayak account</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">

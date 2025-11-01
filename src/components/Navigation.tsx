@@ -30,7 +30,7 @@ export default function Navigation({ currentPage, onNavigate }: NavigationProps)
             <div className="w-10 h-10 bg-gradient-to-br from-teal-500 to-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">
               T
             </div>
-            <span className="ml-3 text-xl font-bold text-gray-900">TechFlow</span>
+            <span className="ml-3 text-xl font-bold text-gray-900">Sahayak</span>
           </div>
 
           <div className="hidden md:flex items-center space-x-8">

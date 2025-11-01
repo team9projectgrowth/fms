@@ -12,7 +12,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
       company: 'TechStart Inc',
       image: 'https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg?auto=compress&cs=tinysrgb&w=400',
       rating: 5,
-      quote: 'TechFlow transformed our business operations. Their solutions are innovative and incredibly reliable. We saw a 40% increase in productivity within the first quarter.',
+      quote: 'Sahayak transformed our business operations. Their solutions are innovative and incredibly reliable. We saw a 40% increase in productivity within the first quarter.',
       logo: 'TS'
     },
     {
@@ -30,7 +30,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
       company: 'InnovateLab',
       image: 'https://images.pexels.com/photos/1239291/pexels-photo-1239291.jpeg?auto=compress&cs=tinysrgb&w=400',
       rating: 5,
-      quote: 'The best investment we made this year. ROI was visible within the first quarter. TechFlow has become an integral part of our daily operations.',
+      quote: 'The best investment we made this year. ROI was visible within the first quarter. Sahayak has become an integral part of our daily operations.',
       logo: 'IL'
     },
     {
@@ -39,7 +39,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
       company: 'GrowthCo',
       image: 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg?auto=compress&cs=tinysrgb&w=400',
       rating: 5,
-      quote: 'We consolidated five different tools into TechFlow and saved both money and headaches. The unified platform is exactly what we needed.',
+      quote: 'We consolidated five different tools into Sahayak and saved both money and headaches. The unified platform is exactly what we needed.',
       logo: 'GC'
     },
     {
@@ -57,7 +57,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
       company: 'SalesForce Pro',
       image: 'https://images.pexels.com/photos/1516680/pexels-photo-1516680.jpeg?auto=compress&cs=tinysrgb&w=400',
       rating: 5,
-      quote: 'TechFlow helped us scale our operations without adding complexity. Our team adopted it instantly, which speaks volumes about the user experience.',
+      quote: 'Sahayak helped us scale our operations without adding complexity. Our team adopted it instantly, which speaks volumes about the user experience.',
       logo: 'SF'
     }
   ];
@@ -70,7 +70,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
             Customer Stories
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Discover how businesses like yours are achieving remarkable results with TechFlow.
+            Discover how businesses like yours are achieving remarkable results with Sahayak.
           </p>
         </div>
       </section>
@@ -203,7 +203,7 @@ export default function TestimonialsPage({ onNavigate }: TestimonialsPageProps) 
             Ready to Join Our Success Stories?
           </h2>
           <p className="text-xl mb-8 opacity-90 max-w-2xl mx-auto">
-            Start your free trial today and see why thousands of businesses trust TechFlow.
+            Start your free trial today and see why thousands of businesses trust Sahayak.
           </p>
           <button
             onClick={() => onNavigate('register')}

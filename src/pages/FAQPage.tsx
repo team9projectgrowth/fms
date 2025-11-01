@@ -10,24 +10,24 @@ export default function FAQPage({ onNavigate }: FAQPageProps) {
 
   const faqs = [
     {
-      question: 'What is TechFlow and how can it help my business?',
-      answer: 'TechFlow is a comprehensive suite of business tools designed to streamline operations, improve team collaboration, and drive growth. Our platform includes customer communication tools, team management software, and advanced analytics to help businesses of all sizes work smarter and faster.'
+      question: 'What is Sahayak and how can it help my business?',
+      answer: 'Sahayak is a comprehensive suite of business tools designed to streamline operations, improve team collaboration, and drive growth. Our platform includes customer communication tools, team management software, and advanced analytics to help businesses of all sizes work smarter and faster.'
     },
     {
-      question: 'How much does TechFlow cost?',
+      question: 'How much does Sahayak cost?',
       answer: 'We offer flexible pricing plans starting at $29/month for small teams. Our Standard plan is $79/month, and our Enterprise plan includes custom pricing with dedicated support and advanced features. All plans include a 14-day free trial with no credit card required.'
     },
     {
-      question: 'Can I try TechFlow before committing to a paid plan?',
+      question: 'Can I try Sahayak before committing to a paid plan?',
       answer: 'Absolutely! We offer a 14-day free trial for all our products. You can explore all features without entering credit card details. If you need more time to evaluate, contact our sales team for an extended trial period.'
     },
     {
-      question: 'Is my data secure with TechFlow?',
+      question: 'Is my data secure with Sahayak?',
       answer: 'Yes, security is our top priority. We use bank-level 256-bit encryption, maintain SOC 2 Type II compliance, and store all data in secure, redundant data centers. We also offer two-factor authentication, SSO, and regular security audits. Your data is never shared with third parties without your explicit consent.'
     },
     {
-      question: 'What integrations does TechFlow support?',
-      answer: 'TechFlow integrates with over 100 popular tools including Slack, Google Workspace, Microsoft 365, Salesforce, HubSpot, Zapier, and many more. We also offer a robust API and webhooks for custom integrations. Check our integrations page for the complete list.'
+      question: 'What integrations does Sahayak support?',
+      answer: 'Sahayak integrates with over 100 popular tools including Slack, Google Workspace, Microsoft 365, Salesforce, HubSpot, Zapier, and many more. We also offer a robust API and webhooks for custom integrations. Check our integrations page for the complete list.'
     },
     {
       question: 'Can I cancel my subscription at any time?',
@@ -42,11 +42,11 @@ export default function FAQPage({ onNavigate }: FAQPageProps) {
       answer: 'We offer multiple support channels including email support (response within 24 hours), live chat during business hours, and a detailed help center. Enterprise customers receive priority support with dedicated account managers and 24/7 phone support.'
     },
     {
-      question: 'Can TechFlow scale with my growing business?',
-      answer: 'Absolutely! TechFlow is built to scale from small startups to large enterprises. You can easily upgrade your plan, add more users, and access advanced features as your business grows. Our infrastructure handles millions of transactions daily without compromising performance.'
+      question: 'Can Sahayak scale with my growing business?',
+      answer: 'Absolutely! Sahayak is built to scale from small startups to large enterprises. You can easily upgrade your plan, add more users, and access advanced features as your business grows. Our infrastructure handles millions of transactions daily without compromising performance.'
     },
     {
-      question: 'What happens to my data if I decide to leave TechFlow?',
+      question: 'What happens to my data if I decide to leave Sahayak?',
       answer: 'You maintain complete ownership of your data. Before canceling, you can export all your data in standard formats (CSV, JSON, PDF). We provide easy-to-use export tools and can assist with data migration. After cancellation, we retain your data for 30 days in case you change your mind, then permanently delete it upon your request.'
     }
   ];
@@ -62,7 +62,7 @@ export default function FAQPage({ onNavigate }: FAQPageProps) {
             Frequently Asked Questions
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Find answers to common questions about TechFlow and our services.
+            Find answers to common questions about Sahayak and our services.
           </p>
         </div>
       </section>

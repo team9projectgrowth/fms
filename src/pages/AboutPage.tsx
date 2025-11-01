@@ -14,7 +14,7 @@ export default function AboutPage() {
       <section className="bg-gradient-to-br from-teal-50 via-blue-50 to-purple-50 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
-            About TechFlow
+            About Sahayak
           </h1>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
             We are on a mission to empower businesses with innovative technology solutions that drive real results.
@@ -30,7 +30,7 @@ export default function AboutPage() {
                 Our Story
               </h2>
               <p className="text-lg text-gray-600 mb-4">
-                TechFlow was born from a simple idea: technology should empower, not complicate. Founded in 2018 by a team of passionate engineers and entrepreneurs, we set out to create solutions that businesses actually want to use.
+                Sahayak was born from a simple idea: technology should empower, not complicate. Founded in 2018 by a team of passionate engineers and entrepreneurs, we set out to create solutions that businesses actually want to use.
               </p>
               <p className="text-lg text-gray-600 mb-4">
                 Today, we serve thousands of companies worldwide, from scrappy startups to Fortune 500 enterprises. Our commitment to innovation, customer success, and ethical business practices drives everything we do.

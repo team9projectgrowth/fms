@@ -1,31 +1,153 @@
-import { useState } from 'react';
-import { X, Copy, Plus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Copy, Plus, AlertCircle } from 'lucide-react';
+import { usersService } from '../../services/users.service';
+import { executorsService } from '../../services/executors.service';
+import type { UserType } from '../../types/database';
 
 interface CreateEditUserFormProps {
   userId?: string;
   userType?: string;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export default function CreateEditUserForm({ userId, userType, onClose }: CreateEditUserFormProps) {
+export default function CreateEditUserForm({ userId, userType, onClose, onSuccess }: CreateEditUserFormProps) {
   const [formData, setFormData] = useState({
-    type: userType || 'complainant',
+    type: (userType || 'complainant') as UserType,
     name: '',
     email: '',
+    password: '',
     phone: '',
     department: '',
     employeeId: '',
     skills: [] as string[],
-    maxTickets: 5,
+    maxTickets: 10,
     workStart: '09:00',
     workEnd: '17:00',
     telegramToken: '',
     active: true
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (userId) {
+      loadUser();
+    }
+  }, [userId]);
+
+  const loadUser = async () => {
+    try {
+      setLoading(true);
+      const user = await usersService.getUserById(userId!);
+      if (user) {
+        setFormData(prev => ({
+          ...prev,
+          type: user.user_type,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || '',
+          department: user.department || '',
+          employeeId: user.employee_id || '',
+          active: user.active
+        }));
+
+        if (user.user_type === 'executor') {
+          const executor = await executorsService.getExecutorByUserId(userId!);
+          if (executor) {
+            setFormData(prev => ({
+              ...prev,
+              skills: executor.skills || [],
+              maxTickets: executor.max_tickets,
+              workStart: executor.work_start,
+              workEnd: executor.work_end,
+              telegramToken: executor.telegram_token || ''
+            }));
+          }
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load user');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onClose();
+    setLoading(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      if (userId) {
+        await usersService.updateUser(userId, {
+          name: formData.name,
+          email: formData.email,
+          phone: formData.phone,
+          department: formData.department,
+          employee_id: formData.employeeId,
+          active: formData.active,
+        });
+
+        if (formData.type === 'executor') {
+          const executor = await executorsService.getExecutorByUserId(userId);
+          if (executor) {
+            await executorsService.updateExecutor(executor.id, {
+              skills: formData.skills,
+              max_tickets: formData.maxTickets,
+              work_start: formData.workStart,
+              work_end: formData.workEnd,
+            });
+          }
+        }
+
+        setSuccessMessage('User updated successfully!');
+      } else {
+        if (!formData.password) {
+          setError('Password is required for new users');
+          setLoading(false);
+          return;
+        }
+
+        const newUser = await usersService.createUser({
+          email: formData.email,
+          password: formData.password,
+          user_type: formData.type,
+          name: formData.name,
+          phone: formData.phone,
+          department: formData.department,
+          employee_id: formData.employeeId,
+          active: formData.active,
+        });
+
+        if (formData.type === 'executor') {
+          await executorsService.createExecutor({
+            user_id: newUser.id,
+            skills: formData.skills,
+            max_tickets: formData.maxTickets,
+            work_start: formData.workStart,
+            work_end: formData.workEnd,
+          });
+        }
+
+        setSuccessMessage('User created successfully!');
+      }
+
+      if (onSuccess) {
+        onSuccess();
+      }
+
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save user');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,7 +155,10 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
       <div className="bg-white rounded-card shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b border-gray-300 px-6 py-4 flex items-center justify-between">
           <h2 className="text-xl font-bold text-gray-900">
-            {userId ? 'Edit User' : 'Create New User'}
+            {userId
+              ? `Edit ${formData.type.charAt(0).toUpperCase() + formData.type.slice(1)}`
+              : `Create New ${formData.type.charAt(0).toUpperCase() + formData.type.slice(1)}`
+            }
           </h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <X size={24} />
@@ -41,6 +166,19 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {error && (
+            <div className="p-3 bg-danger/10 border border-danger text-danger rounded-card flex items-center">
+              <AlertCircle size={16} className="mr-2" />
+              {error}
+            </div>
+          )}
+
+          {successMessage && (
+            <div className="p-3 bg-success/10 border border-success text-success rounded-card">
+              {successMessage}
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-gray-900 mb-3">User Type</label>
             <div className="grid grid-cols-3 gap-3">
@@ -48,12 +186,13 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
                 <button
                   key={type}
                   type="button"
-                  onClick={() => setFormData({ ...formData, type })}
+                  onClick={() => setFormData({ ...formData, type: type as UserType })}
+                  disabled={!!userId}
                   className={`px-4 py-3 rounded-card border-2 text-sm font-medium transition-colors ${
                     formData.type === type
                       ? 'border-primary bg-primary/10 text-primary'
                       : 'border-gray-300 text-gray-700 hover:border-gray-400'
-                  }`}
+                  } ${!!userId ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {type.charAt(0).toUpperCase() + type.slice(1)}
                 </button>
@@ -82,9 +221,26 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
                 placeholder="john@company.com"
+                disabled={!!userId}
               />
             </div>
           </div>
+
+          {!userId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Password *</label>
+              <input
+                type="password"
+                required={!userId}
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
+                placeholder="••••••••"
+                minLength={6}
+              />
+              <p className="text-xs text-gray-500 mt-1">Minimum 6 characters</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -176,7 +332,7 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
                     <input
                       type="number"
                       min="1"
-                      max="10"
+                      max="20"
                       value={formData.maxTickets}
                       onChange={(e) => setFormData({ ...formData, maxTickets: parseInt(e.target.value) })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
@@ -250,15 +406,17 @@ export default function CreateEditUserForm({ userId, userType, onClose }: Create
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-card hover:bg-gray-50"
+              disabled={loading}
+              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-card hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-6 py-2 bg-primary text-white rounded-card hover:bg-primary/90"
+              disabled={loading}
+              className="px-6 py-2 bg-primary text-white rounded-card hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {userId ? 'Save Changes' : 'Create User'}
+              {loading ? 'Saving...' : userId ? 'Save Changes' : 'Create User'}
             </button>
           </div>
         </form>
