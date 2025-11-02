@@ -11,7 +11,6 @@ import SupportPage from './pages/SupportPage';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardLoginPage from './pages/DashboardLoginPage';
-import SetupAdminPage from './pages/SetupAdminPage';
 import DashboardLayout from './dashboard/DashboardLayout';
 import ExecutorDashboard from './dashboard/screens/ExecutorDashboard';
 import ExecutorTicketDetail from './dashboard/screens/ExecutorTicketDetail';
@@ -123,10 +122,6 @@ function App() {
         return userRole === 'admin' ? <AdminDashboard /> : <ExecutorDashboard onNavigate={handleNavigate} />;
     }
   };
-
-  if (currentPage === 'setup') {
-    return <SetupAdminPage />;
-  }
 
   if (currentPage === 'login') {
     return <DashboardLoginPage onLogin={handleLogin} />;

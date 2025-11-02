@@ -1,80 +1,89 @@
 import { supabase } from '../lib/supabase';
+import type { User, UserType } from '../types/database';
 
 export interface AuthUser {
   id: string;
   email: string;
-  role: 'admin' | 'executor';
+  user_type: UserType;
   name: string;
 }
 
 export const authService = {
-  async signIn(email: string, password: string): Promise<{ user: AuthUser }> {
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+  async signUp(email: string, password: string, userData: { name: string; user_type: UserType }) {
+    const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
     });
 
-    if (authError) {
-      throw new Error(authError.message || 'Invalid email or password');
-    }
+    if (authError) throw authError;
+    if (!authData.user) throw new Error('User creation failed');
 
-    if (!authData.user) {
-      throw new Error('Invalid email or password');
-    }
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .insert({
+        id: authData.user.id,
+        email,
+        user_type: userData.user_type,
+        name: userData.name,
+      })
+      .select()
+      .single();
 
-    const role = authData.user.user_metadata?.role || authData.user.app_metadata?.role;
-    const name = authData.user.user_metadata?.name || authData.user.email?.split('@')[0];
+    if (userError) throw userError;
 
-    if (!role || (role !== 'admin' && role !== 'executor')) {
-      await supabase.auth.signOut();
-      throw new Error('Invalid user role. Only admin and executor accounts can sign in.');
-    }
+    return { user, authUser: authData.user };
+  },
 
-    const user: AuthUser = {
-      id: authData.user.id,
-      email: authData.user.email!,
-      role: role as 'admin' | 'executor',
-      name: name || 'User'
-    };
+  async signIn(email: string, password: string) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-    return { user };
+    if (error) throw error;
+    if (!data.user) throw new Error('Login failed');
+
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+
+    if (userError) throw userError;
+
+    return { user: user as User, session: data.session };
   },
 
   async signOut() {
     const { error } = await supabase.auth.signOut();
-    if (error) {
-      throw new Error(error.message);
-    }
+    if (error) throw error;
   },
 
-  async getCurrentUser(): Promise<AuthUser | null> {
-    const { data: { user } } = await supabase.auth.getUser();
+  async getCurrentUser(): Promise<User | null> {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
 
-    if (!user) {
-      return null;
-    }
+    if (!authUser) return null;
 
-    const role = user.user_metadata?.role || user.app_metadata?.role;
-    const name = user.user_metadata?.name || user.email?.split('@')[0];
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authUser.id)
+      .single();
 
-    if (!role || (role !== 'admin' && role !== 'executor')) {
-      return null;
-    }
-
-    return {
-      id: user.id,
-      email: user.email!,
-      role: role as 'admin' | 'executor',
-      name: name || 'User'
-    };
+    if (error) return null;
+    return user as User;
   },
 
-  async isAuthenticated(): Promise<boolean> {
+  async getSession() {
     const { data: { session } } = await supabase.auth.getSession();
-    return session !== null;
+    return session;
   },
 
   onAuthStateChange(callback: (event: string, session: any) => void) {
-    return supabase.auth.onAuthStateChange(callback);
-  }
+    return supabase.auth.onAuthStateChange((event, session) => {
+      (async () => {
+        callback(event, session);
+      })();
+    });
+  },
 };
