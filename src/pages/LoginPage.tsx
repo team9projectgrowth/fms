@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Mail, Lock, ArrowRight } from 'lucide-react';
+import { authService } from '../services/auth.service';
 
 interface LoginPageProps {
   onNavigate: (page: string) => void;
@@ -10,9 +11,27 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
     email: '',
     password: ''
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const { user } = await authService.signIn(formData.email, formData.password);
+
+      if (user.role === 'admin' || user.role === 'executor') {
+        onNavigate('login');
+      } else {
+        setError('Invalid user type for login');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -73,6 +92,12 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
               </div>
             </div>
 
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <label className="flex items-center">
                 <input
@@ -88,9 +113,10 @@ export default function LoginPage({ onNavigate }: LoginPageProps) {
 
             <button
               type="submit"
-              className="w-full px-6 py-4 bg-gradient-to-r from-teal-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all flex items-center justify-center"
+              disabled={loading}
+              className="w-full px-6 py-4 bg-gradient-to-r from-teal-500 to-blue-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign In
+              {loading ? 'Signing in...' : 'Sign In'}
               <ArrowRight className="ml-2" size={20} />
             </button>
           </form>

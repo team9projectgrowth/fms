@@ -24,9 +24,9 @@ export default function DashboardLoginPage({ onLogin }: DashboardLoginPageProps)
     try {
       const { user } = await authService.signIn(formData.email, formData.password);
 
-      if (user.user_type === 'admin') {
+      if (user.role === 'admin') {
         onLogin('admin');
-      } else if (user.user_type === 'executor') {
+      } else if (user.role === 'executor') {
         onLogin('executor');
       } else {
         setError('Invalid user type for dashboard access');
