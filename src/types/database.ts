@@ -16,22 +16,22 @@ export interface User {
   updated_at: string;
 }
 
-export interface Executor {
+export interface ExecutorProfile {
   id: string;
+  tenant_id: string;
   user_id: string;
-  skills: string[];
-  max_tickets: number;
+  skills: any[];
+  max_concurrent_tickets: number;
   current_load: number;
-  availability: ExecutorAvailability;
-  work_start: string;
-  work_end: string;
-  telegram_token?: string;
-  telegram_connected: boolean;
+  availability_status: ExecutorAvailability;
+  employee_id?: string;
+  manager_id?: string;
+  full_name?: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface ExecutorWithUser extends Executor {
+export interface ExecutorProfileWithUser extends ExecutorProfile {
   user: User;
 }
 
@@ -66,16 +66,12 @@ export interface TicketWithRelations extends Ticket {
 
 export interface Category {
   id: string;
+  tenant_id: string;
   name: string;
   description?: string;
   icon?: string;
   color?: string;
-  keywords?: string[];
-  ai_available?: boolean;
-  sort_order?: number;
-  active: boolean;
-  created_at: string;
-  updated_at?: string;
+  is_active: boolean;
 }
 
 export interface Priority {

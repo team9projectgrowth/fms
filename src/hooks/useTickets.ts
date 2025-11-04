@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ticketsService } from '../services/tickets.service';
+import { useTenant } from './useTenant';
 import type { TicketWithRelations, CreateTicketInput, UpdateTicketInput, TicketFilters } from '../types/database';
 
 export function useTickets(filters?: TicketFilters, page = 1, limit = 10) {
+  const { activeTenantId } = useTenant();
   const [tickets, setTickets] = useState<TicketWithRelations[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -11,13 +13,13 @@ export function useTickets(filters?: TicketFilters, page = 1, limit = 10) {
 
   useEffect(() => {
     fetchTickets();
-  }, [JSON.stringify(filters), page, limit]);
+  }, [JSON.stringify(filters), page, limit, activeTenantId]);
 
   const fetchTickets = async () => {
     try {
       setLoading(true);
       setError(null);
-      const result = await ticketsService.getTickets(filters, page, limit);
+      const result = await ticketsService.getTickets(filters, page, limit, activeTenantId || undefined);
       setTickets(result.tickets);
       setTotal(result.total);
       setTotalPages(result.totalPages);
@@ -30,7 +32,7 @@ export function useTickets(filters?: TicketFilters, page = 1, limit = 10) {
 
   const createTicket = async (input: CreateTicketInput) => {
     try {
-      const newTicket = await ticketsService.createTicket(input);
+      const newTicket = await ticketsService.createTicket(input, activeTenantId || undefined);
       setTickets(prev => [newTicket as any, ...prev]);
       return newTicket;
     } catch (err) {

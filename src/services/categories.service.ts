@@ -2,22 +2,36 @@ import { supabase } from '../lib/supabase';
 import type { Category } from '../types/database';
 
 export const categoriesService = {
-  async getAll(): Promise<Category[]> {
-    const { data, error } = await supabase
+  async getAll(tenantId?: string | null): Promise<Category[]> {
+    let query = supabase
       .from('categories')
       .select('*')
-      .order('sort_order', { ascending: true });
+      .order('name', { ascending: true });
+
+    // Super Admin (tenantId is null) sees all categories
+    // Tenant Admin (tenantId is set) sees only their tenant's categories
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
   },
 
-  async getActive(): Promise<Category[]> {
-    const { data, error } = await supabase
+  async getActive(tenantId?: string | null): Promise<Category[]> {
+    let query = supabase
       .from('categories')
       .select('*')
-      .eq('active', true)
-      .order('sort_order', { ascending: true });
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
@@ -34,10 +48,18 @@ export const categoriesService = {
     return data;
   },
 
-  async create(category: Omit<Category, 'id' | 'created_at' | 'updated_at'>): Promise<Category> {
+  async create(category: Omit<Category, 'id'>, tenantId: string | null): Promise<Category> {
+    // tenant_id is required - throw error if not provided
+    if (!tenantId) {
+      throw new Error('tenant_id is required to create a category');
+    }
+
     const { data, error } = await supabase
       .from('categories')
-      .insert(category)
+      .insert({
+        ...category,
+        tenant_id: tenantId,
+      })
       .select()
       .single();
 
@@ -45,7 +67,7 @@ export const categoriesService = {
     return data;
   },
 
-  async update(id: string, updates: Partial<Omit<Category, 'id' | 'created_at' | 'updated_at'>>): Promise<Category> {
+  async update(id: string, updates: Partial<Omit<Category, 'id' | 'tenant_id'>>): Promise<Category> {
     const { data, error } = await supabase
       .from('categories')
       .update(updates)
@@ -57,18 +79,11 @@ export const categoriesService = {
     return data;
   },
 
+  // Note: sort_order field doesn't exist in database schema
+  // This method is kept for compatibility but does nothing
   async updateSortOrder(categoryIds: string[]): Promise<void> {
-    const updates = categoryIds.map((id, index) => ({
-      id,
-      sort_order: index + 1,
-    }));
-
-    for (const update of updates) {
-      await supabase
-        .from('categories')
-        .update({ sort_order: update.sort_order })
-        .eq('id', update.id);
-    }
+    // No-op: sort_order doesn't exist in database
+    console.warn('updateSortOrder called but sort_order field does not exist in database');
   },
 
   async delete(id: string): Promise<void> {
@@ -80,15 +95,21 @@ export const categoriesService = {
     if (error) throw error;
   },
 
-  async getTicketCount(categoryName: string, days: number = 30): Promise<number> {
+  async getTicketCount(categoryId: string, days: number = 30, tenantId?: string | null): Promise<number> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const { count, error } = await supabase
+    let query = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
-      .eq('category', categoryName)
+      .eq('category_id', categoryId)
       .gte('created_at', startDate.toISOString());
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { count, error } = await query;
 
     if (error) throw error;
     return count || 0;

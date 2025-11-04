@@ -1,12 +1,13 @@
 import { LayoutDashboard, Ticket, Users, Settings, FileText, ClipboardList, Building } from 'lucide-react';
 
 interface DashboardSidebarProps {
-  userRole: 'admin' | 'executor' | 'complainant';
+  userRole: 'admin' | 'tenant_admin' | 'executor' | 'complainant';
+  isSuperAdmin?: boolean;
   onNavigate: (page: string) => void;
 }
 
-export default function DashboardSidebar({ userRole, onNavigate }: DashboardSidebarProps) {
-  const adminMenu = [
+export default function DashboardSidebar({ userRole, isSuperAdmin = false, onNavigate }: DashboardSidebarProps) {
+  const superAdminMenu = [
     { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'admin-tickets', label: 'All Tickets', icon: Ticket },
     { id: 'complainants', label: 'Complainants', icon: Users },
@@ -18,12 +19,29 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
     { id: 'config-hours', label: 'Business Hours', icon: Settings, isConfig: true },
   ];
 
+  const tenantAdminMenu = [
+    { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'admin-tickets', label: 'All Tickets', icon: Ticket },
+    { id: 'complainants', label: 'Complainants', icon: Users },
+    { id: 'executors', label: 'Executors', icon: Building },
+    { id: 'config-categories', label: 'Categories', icon: FileText, isConfig: true },
+    { id: 'config-priority', label: 'Priority Levels', icon: Settings, isConfig: true },
+  ];
+
   const executorMenu = [
     { id: 'executor-dashboard', label: 'Assigned Tickets', icon: Ticket },
   ];
 
-  const menu = userRole === 'admin' ? adminMenu : executorMenu;
-  const currentPage = window.location.hash.slice(1) || (userRole === 'admin' ? 'admin-dashboard' : 'executor-dashboard');
+  const getMenu = () => {
+    if (userRole === 'executor') return executorMenu;
+    if (userRole === 'admin' || userRole === 'tenant_admin') {
+      return isSuperAdmin ? superAdminMenu : tenantAdminMenu;
+    }
+    return [];
+  };
+
+  const menu = getMenu();
+  const currentPage = window.location.hash.slice(1) || (userRole === 'executor' ? 'executor-dashboard' : 'admin-dashboard');
 
   return (
     <div className="w-60 bg-white border-r border-gray-300 flex flex-col">
@@ -63,7 +81,7 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
 
       <div className="p-4 border-t border-gray-300">
         <div className="text-xs text-gray-500">
-          {userRole === 'admin' ? 'Admin Account' : 'Executor Account'}
+          {isSuperAdmin ? 'Super Admin' : userRole === 'tenant_admin' ? 'Tenant Admin' : userRole === 'admin' ? 'Admin' : 'Executor Account'}
         </div>
       </div>
     </div>

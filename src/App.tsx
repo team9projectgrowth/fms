@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useTenant } from './hooks/useTenant';
 import Navigation from './components/Navigation';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
@@ -27,14 +28,34 @@ import ConfigPriorityLevels from './dashboard/screens/ConfigPriorityLevels';
 import ConfigBusinessHours from './dashboard/screens/ConfigBusinessHours';
 
 function App() {
+  const { setActiveTenantId } = useTenant();
   const [currentPage, setCurrentPage] = useState('home');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userRole, setUserRole] = useState<'admin' | 'executor' | null>(null);
+  const [userRole, setUserRole] = useState<'admin' | 'tenant_admin' | 'executor' | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [showUserForm, setShowUserForm] = useState(false);
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [userFormType, setUserFormType] = useState<string>('complainant');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Initialize page from hash on mount and listen for hash changes
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      setCurrentPage(hash);
+    }
+
+    const handleHashChange = () => {
+      const newHash = window.location.hash.slice(1);
+      if (newHash) {
+        setCurrentPage(newHash);
+      }
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
 
   const handleNavigate = (page: string, param?: string) => {
     if (page === 'executor-ticket') {
@@ -56,16 +77,20 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogin = (role: 'admin' | 'executor') => {
+  const handleLogin = (role: 'admin' | 'tenant_admin' | 'executor', isSuperAdmin: boolean = false) => {
     setIsAuthenticated(true);
     setUserRole(role);
-    setCurrentPage(role === 'admin' ? 'admin-dashboard' : 'executor-dashboard');
-    window.location.hash = role === 'admin' ? 'admin-dashboard' : 'executor-dashboard';
+    setIsSuperAdmin(isSuperAdmin);
+    // tenant id should already be available from authService; we set it elsewhere in DashboardLoginPage
+    setCurrentPage(role === 'executor' ? 'executor-dashboard' : 'admin-dashboard');
+    window.location.hash = role === 'executor' ? 'executor-dashboard' : 'admin-dashboard';
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUserRole(null);
+    setIsSuperAdmin(false);
+    setActiveTenantId(null);
     setCurrentPage('home');
     window.location.hash = '';
   };
@@ -151,7 +176,7 @@ function App() {
 
   return (
     <>
-      <DashboardLayout userRole={userRole!} onNavigate={handleNavigate} onLogout={handleLogout}>
+      <DashboardLayout userRole={userRole!} isSuperAdmin={isSuperAdmin} onNavigate={handleNavigate} onLogout={handleLogout}>
         {renderDashboardContent()}
       </DashboardLayout>
       {showUserForm && (

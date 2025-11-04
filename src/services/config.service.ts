@@ -2,31 +2,43 @@ import { supabase } from '../lib/supabase';
 import type { Category, Priority } from '../types/database';
 
 export const configService = {
-  async getCategories() {
-    const { data, error } = await supabase
+  async getCategories(tenantId?: string) {
+    let query = supabase
       .from('categories')
       .select('*')
       .eq('active', true)
       .order('name');
 
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
     return (data || []) as Category[];
   },
 
-  async getAllCategories() {
-    const { data, error } = await supabase
+  async getAllCategories(tenantId?: string) {
+    let query = supabase
       .from('categories')
       .select('*')
       .order('name');
 
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
     return (data || []) as Category[];
   },
 
-  async createCategory(name: string, description?: string) {
+  async createCategory(name: string, description?: string, tenantId?: string) {
     const { data, error } = await supabase
       .from('categories')
-      .insert({ name, description })
+      .insert({ name, description, tenant_id: tenantId })
       .select()
       .single();
 
@@ -55,31 +67,46 @@ export const configService = {
     if (error) throw error;
   },
 
-  async getPriorities() {
-    const { data, error } = await supabase
+  async getPriorities(tenantId?: string) {
+    let query = supabase
       .from('priorities')
       .select('*')
       .eq('active', true)
       .order('level');
 
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
     return (data || []) as Priority[];
   },
 
-  async getAllPriorities() {
-    const { data, error } = await supabase
+  async getAllPriorities(tenantId?: string) {
+    let query = supabase
       .from('priorities')
       .select('*')
       .order('level');
 
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
+
     if (error) throw error;
     return (data || []) as Priority[];
   },
 
-  async createPriority(input: Omit<Priority, 'id' | 'created_at'>) {
+  async createPriority(input: Omit<Priority, 'id' | 'created_at'>, tenantId?: string) {
     const { data, error } = await supabase
       .from('priorities')
-      .insert(input)
+      .insert({
+        ...input,
+        tenant_id: tenantId || (input as any).tenant_id,
+      })
       .select()
       .single();
 

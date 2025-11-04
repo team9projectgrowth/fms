@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react';
 import { Plus, Download, Upload, Search, Edit, Trash2 } from 'lucide-react';
 import { usersService } from '../../services/users.service';
 import type { User } from '../../types/database';
+import { useTenant } from '../../hooks/useTenant';
 
 interface UserManagementComplainantsProps {
   onNavigate: (page: string, userId?: string) => void;
 }
 
 export default function UserManagementComplainants({ onNavigate }: UserManagementComplainantsProps) {
+  const { activeTenantId } = useTenant();
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -15,6 +17,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [ticketStats, setTicketStats] = useState<Record<string, { total: number; active: number }>>({});
 
   useEffect(() => {
     loadUsers();
@@ -27,8 +30,11 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const data = await usersService.getUsers('complainant');
+      const data = await usersService.getUsers('complainant', activeTenantId || undefined);
       setUsers(data);
+      const ids = data.map(u => u.id);
+      const stats = await usersService.getComplainantTicketStats(ids);
+      setTicketStats(stats);
     } catch (err) {
       console.error('Failed to load users:', err);
     } finally {
@@ -126,13 +132,18 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">COMPLAINANTS</h1>
-        <button
-          onClick={() => onNavigate('create-user', 'complainant')}
-          className="px-4 py-2 bg-primary text-white rounded-card hover:bg-primary/90 flex items-center"
-        >
-          <Plus size={16} className="mr-2" />
-          Create User
-        </button>
+        <div className="flex items-center space-x-2">
+          <button className="px-3 py-2 text-sm border border-gray-300 rounded-card hover:bg-gray-50 flex items-center">
+            Import CSV
+          </button>
+          <button
+            onClick={() => onNavigate('create-user', 'complainant')}
+            className="px-4 py-2 bg-primary text-white rounded-card hover:bg-primary/90 flex items-center"
+          >
+            <Plus size={16} className="mr-2" />
+            Add User
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-card shadow-sm p-5 mb-6">
@@ -212,6 +223,8 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Department</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Total Tickets</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Active Tickets</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Phone</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
@@ -231,6 +244,8 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{user.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.department || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{ticketStats[user.id]?.total ?? 0}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{ticketStats[user.id]?.active ?? 0}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.phone || '-'}</td>
                   <td className="px-4 py-3">
                     <button

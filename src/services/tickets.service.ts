@@ -8,15 +8,19 @@ import type {
 } from '../types/database';
 
 export const ticketsService = {
-  async getTickets(filters?: TicketFilters, page = 1, limit = 10) {
+  async getTickets(filters?: TicketFilters, page = 1, limit = 10, tenantId?: string) {
     let query = supabase
       .from('tickets')
       .select(`
         *,
         complainant:users!tickets_complainant_id_fkey(*),
-        executor:executors!tickets_executor_id_fkey(*, user:users(*))
+        executor_profile:executor_profiles!tickets_executor_profile_id_fkey(*, user:users(*))
       `, { count: 'exact' })
       .order('created_at', { ascending: false });
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
 
     if (filters?.status && filters.status.length > 0) {
       query = query.in('status', filters.status);
@@ -65,7 +69,7 @@ export const ticketsService = {
       .select(`
         *,
         complainant:users!tickets_complainant_id_fkey(*),
-        executor:executors!tickets_executor_id_fkey(*, user:users(*))
+        executor_profile:executor_profiles!tickets_executor_profile_id_fkey(*, user:users(*))
       `)
       .eq('id', id)
       .maybeSingle();
@@ -74,12 +78,13 @@ export const ticketsService = {
     return data as TicketWithRelations | null;
   },
 
-  async createTicket(input: CreateTicketInput) {
+  async createTicket(input: CreateTicketInput, tenantId?: string) {
     const { data, error } = await supabase
       .from('tickets')
       .insert({
         ...input,
         ticket_number: '',
+        tenant_id: tenantId || (input as any).tenant_id,
       })
       .select()
       .single();
@@ -109,10 +114,10 @@ export const ticketsService = {
     if (error) throw error;
   },
 
-  async assignExecutor(ticketId: string, executorId: string) {
+  async assignExecutor(ticketId: string, executorProfileId: string) {
     const { data, error } = await supabase
       .from('tickets')
-      .update({ executor_id: executorId, status: 'in-progress' })
+      .update({ executor_profile_id: executorProfileId, status: 'in-progress' })
       .eq('id', ticketId)
       .select()
       .single();

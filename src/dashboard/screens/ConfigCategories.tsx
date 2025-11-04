@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import * as Icons from 'lucide-react';
 import { categoriesService } from '../../services/categories.service';
+import { useTenant } from '../../hooks/useTenant';
 import type { Category } from '../../types/database';
 
 const ICON_OPTIONS = [
@@ -22,6 +23,7 @@ const COLOR_OPTIONS = [
 ];
 
 export default function ConfigCategories() {
+  const { activeTenantId } = useTenant();
   const [categories, setCategories] = useState<Category[]>([]);
   const [ticketCounts, setTicketCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -34,26 +36,24 @@ export default function ConfigCategories() {
     description: '',
     icon: 'wrench',
     color: '#3B82F6',
-    keywords: [] as string[],
-    active: true,
-    ai_available: false,
+    is_active: true,
   });
 
-  const [keywordInput, setKeywordInput] = useState('');
-
   useEffect(() => {
-    loadCategories();
-  }, []);
+    if (activeTenantId) {
+      loadCategories();
+    }
+  }, [activeTenantId]);
 
   async function loadCategories() {
     try {
       setLoading(true);
-      const data = await categoriesService.getAll();
+      const data = await categoriesService.getAll(activeTenantId || undefined);
       setCategories(data);
 
       const counts: Record<string, number> = {};
       for (const category of data) {
-        const count = await categoriesService.getTicketCount(category.name, 30);
+        const count = await categoriesService.getTicketCount(category.id, 30, activeTenantId || undefined);
         counts[category.id] = count;
       }
       setTicketCounts(counts);
@@ -72,9 +72,7 @@ export default function ConfigCategories() {
         description: category.description || '',
         icon: category.icon || 'wrench',
         color: category.color || '#3B82F6',
-        keywords: category.keywords || [],
-        active: category.active,
-        ai_available: category.ai_available || false,
+        is_active: category.is_active,
       });
     } else {
       setEditingCategory(null);
@@ -83,12 +81,9 @@ export default function ConfigCategories() {
         description: '',
         icon: 'wrench',
         color: '#3B82F6',
-        keywords: [],
-        active: true,
-        ai_available: false,
+        is_active: true,
       });
     }
-    setKeywordInput('');
     setShowModal(true);
   }
 
@@ -99,37 +94,28 @@ export default function ConfigCategories() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    
+    // Validate tenant_id is provided
+    if (!activeTenantId) {
+      alert('Please select a tenant first. Categories must be associated with a tenant.');
+      return;
+    }
+
     try {
       if (editingCategory) {
         await categoriesService.update(editingCategory.id, formData);
       } else {
-        await categoriesService.create({
-          ...formData,
-          sort_order: categories.length + 1,
-        });
+        await categoriesService.create(formData, activeTenantId);
       }
       await loadCategories();
       closeModal();
     } catch (error) {
       console.error('Failed to save category:', error);
-      alert('Failed to save category. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save category. Please try again.';
+      alert(errorMessage);
     }
   }
 
-  function addKeyword() {
-    const keyword = keywordInput.trim().toLowerCase();
-    if (keyword && !formData.keywords.includes(keyword)) {
-      setFormData({ ...formData, keywords: [...formData.keywords, keyword] });
-      setKeywordInput('');
-    }
-  }
-
-  function removeKeyword(keyword: string) {
-    setFormData({
-      ...formData,
-      keywords: formData.keywords.filter(k => k !== keyword),
-    });
-  }
 
   function handleDragStart(categoryId: string) {
     setDraggedItem(categoryId);
@@ -228,40 +214,18 @@ export default function ConfigCategories() {
               {category.description || 'No description'}
             </p>
 
-            {category.keywords && category.keywords.length > 0 && (
-              <div className="flex flex-wrap gap-1 mb-4">
-                {category.keywords.slice(0, 3).map((keyword) => (
-                  <span
-                    key={keyword}
-                    className="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded"
-                  >
-                    {keyword}
-                  </span>
-                ))}
-                {category.keywords.length > 3 && (
-                  <span className="text-xs px-2 py-1 bg-slate-100 text-slate-700 rounded">
-                    +{category.keywords.length - 3}
-                  </span>
-                )}
-              </div>
-            )}
 
             <div className="flex items-center justify-between pt-4 border-t border-slate-100">
               <div className="flex gap-2">
                 <span
                   className={`text-xs px-2 py-1 rounded-full ${
-                    category.active
+                    category.is_active
                       ? 'bg-green-100 text-green-700'
                       : 'bg-slate-100 text-slate-600'
                   }`}
                 >
-                  {category.active ? 'Active' : 'Inactive'}
+                  {category.is_active ? 'Active' : 'Inactive'}
                 </span>
-                {category.ai_available && (
-                  <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                    AI
-                  </span>
-                )}
               </div>
               <div className="text-sm text-slate-600">
                 <span className="font-semibold">{ticketCounts[category.id] || 0}</span> tickets
@@ -351,65 +315,15 @@ export default function ConfigCategories() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Keywords
-                </label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={keywordInput}
-                    onChange={(e) => setKeywordInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addKeyword())}
-                    placeholder="Add keyword..."
-                    className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-slate-900 focus:border-transparent"
-                  />
-                  <button
-                    type="button"
-                    onClick={addKeyword}
-                    className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors"
-                  >
-                    Add
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {formData.keywords.map((keyword) => (
-                    <span
-                      key={keyword}
-                      className="flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-700 rounded-full text-sm"
-                    >
-                      {keyword}
-                      <button
-                        type="button"
-                        onClick={() => removeKeyword(keyword)}
-                        className="text-slate-500 hover:text-slate-700"
-                      >
-                        <Icons.X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-
               <div className="flex gap-6">
                 <label className="flex items-center gap-3 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.active}
-                    onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
+                    checked={formData.is_active}
+                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
                     className="w-5 h-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                   />
                   <span className="text-sm font-medium text-slate-700">Active</span>
-                </label>
-
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.ai_available}
-                    onChange={(e) => setFormData({ ...formData, ai_available: e.target.checked })}
-                    className="w-5 h-5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                  />
-                  <span className="text-sm font-medium text-slate-700">AI Available</span>
                 </label>
               </div>
 

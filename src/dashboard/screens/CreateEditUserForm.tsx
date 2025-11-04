@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, Copy, Plus, AlertCircle } from 'lucide-react';
 import { usersService } from '../../services/users.service';
-import { executorsService } from '../../services/executors.service';
+import { executorProfilesService } from '../../services/executors.service';
+import { useTenant } from '../../hooks/useTenant';
 import type { UserType } from '../../types/database';
 
 interface CreateEditUserFormProps {
@@ -12,6 +13,7 @@ interface CreateEditUserFormProps {
 }
 
 export default function CreateEditUserForm({ userId, userType, onClose, onSuccess }: CreateEditUserFormProps) {
+  const { activeTenantId } = useTenant();
   const [formData, setFormData] = useState({
     type: (userType || 'complainant') as UserType,
     name: '',
@@ -55,15 +57,15 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
         }));
 
         if (user.user_type === 'executor') {
-          const executor = await executorsService.getExecutorByUserId(userId!);
+          const executor = await executorProfilesService.getByUserId(userId!);
           if (executor) {
             setFormData(prev => ({
               ...prev,
-              skills: executor.skills || [],
-              maxTickets: executor.max_tickets,
-              workStart: executor.work_start,
-              workEnd: executor.work_end,
-              telegramToken: executor.telegram_token || ''
+              skills: (executor.skills as any[]) || [],
+              maxTickets: executor.max_concurrent_tickets,
+              workStart: prev.workStart,
+              workEnd: prev.workEnd,
+              telegramToken: ''
             }));
           }
         }
@@ -93,13 +95,13 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
         });
 
         if (formData.type === 'executor') {
-          const executor = await executorsService.getExecutorByUserId(userId);
+          const executor = await executorProfilesService.getByUserId(userId);
           if (executor) {
-            await executorsService.updateExecutor(executor.id, {
-              skills: formData.skills,
-              max_tickets: formData.maxTickets,
-              work_start: formData.workStart,
-              work_end: formData.workEnd,
+            await executorProfilesService.update(executor.id, {
+              skills: formData.skills as any[],
+              max_concurrent_tickets: formData.maxTickets,
+              availability_status: 'available',
+              full_name: formData.name,
             });
           }
         }
@@ -121,16 +123,21 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
           department: formData.department,
           employee_id: formData.employeeId,
           active: formData.active,
-        });
+        }, activeTenantId || undefined);
 
         if (formData.type === 'executor') {
-          await executorsService.createExecutor({
+          await executorProfilesService.create({
+            tenant_id: activeTenantId || '',
             user_id: newUser.id,
-            skills: formData.skills,
-            max_tickets: formData.maxTickets,
-            work_start: formData.workStart,
-            work_end: formData.workEnd,
-          });
+            skills: formData.skills as any[],
+            max_concurrent_tickets: formData.maxTickets,
+            current_load: 0,
+            availability_status: 'available',
+            full_name: formData.name,
+            created_at: '' as any,
+            updated_at: '' as any,
+            id: '' as any,
+          } as any);
         }
 
         setSuccessMessage('User created successfully!');
