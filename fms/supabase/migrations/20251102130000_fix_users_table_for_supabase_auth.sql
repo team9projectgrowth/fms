@@ -1,0 +1,169 @@
+/*
+  # Fix Users Table for Supabase Auth Compatibility
+
+  This migration transforms the users table from custom auth with password_hash
+  to Supabase Auth compatible schema:
+  
+  1. Remove password_hash (Supabase Auth handles passwords)
+  2. Add all missing columns needed by the application
+  3. Rename user_type to role
+  4. Update column names to match application expectations
+  5. Fix RLS policies to work with updated schema
+*/
+
+-- Drop the old password_hash column if it exists
+ALTER TABLE users DROP COLUMN IF EXISTS password_hash;
+
+-- Add missing columns if they don't exist
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS full_name text,
+ADD COLUMN IF NOT EXISTS emp_code text,
+ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
+-- Add role column if user_type exists (we'll migrate to role)
+DO $$ 
+BEGIN
+  -- If user_type column exists, migrate to role
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name='users' AND column_name='user_type'
+  ) THEN
+    -- Add role column if it doesn't exist
+    IF NOT EXISTS (
+      SELECT 1 FROM information_schema.columns 
+      WHERE table_name='users' AND column_name='role'
+    ) THEN
+      ALTER TABLE users ADD COLUMN role text;
+    END IF;
+    
+    -- Copy user_type values to role
+    UPDATE users SET role = user_type WHERE role IS NULL;
+    
+    -- Make role NOT NULL after migration
+    ALTER TABLE users ALTER COLUMN role SET NOT NULL;
+    
+    -- Drop user_type column
+    ALTER TABLE users DROP COLUMN user_type;
+  END IF;
+  
+  -- If role doesn't exist at all, create it
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name='users' AND column_name='role'
+  ) THEN
+    ALTER TABLE users ADD COLUMN role text NOT NULL;
+  END IF;
+END $$;
+
+-- Ensure all required columns have proper constraints
+-- Handle name column migration first
+DO $$ 
+BEGIN
+  -- If name column exists, copy to full_name
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name='users' AND column_name='name'
+  ) THEN
+    UPDATE users SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL;
+    -- Drop name column after migration
+    ALTER TABLE users DROP COLUMN name;
+  END IF;
+END $$;
+
+-- Update role constraint to include tenant_admin (do this AFTER all data migrations)
+-- First, remove any invalid role values by setting them to 'complainant' as default
+UPDATE users SET role = 'complainant' WHERE role NOT IN ('admin', 'executor', 'complainant', 'tenant_admin');
+
+-- Now drop and recreate the constraint
+ALTER TABLE users 
+DROP CONSTRAINT IF EXISTS users_role_check;
+
+ALTER TABLE users 
+ADD CONSTRAINT users_role_check 
+CHECK (role IN ('admin', 'executor', 'complainant', 'tenant_admin'));
+
+-- Update tenant_id constraint if needed (already added by create_tenants_table migration)
+-- Just ensure it's nullable
+ALTER TABLE users 
+ALTER COLUMN tenant_id DROP NOT NULL;
+
+-- Drop old RLS policies that might conflict
+DROP POLICY IF EXISTS "Users can read own data" ON users;
+DROP POLICY IF EXISTS "Only admins can insert users" ON users;
+DROP POLICY IF EXISTS "Users can update own data" ON users;
+DROP POLICY IF EXISTS "Only admins can delete users" ON users;
+
+-- Create new RLS policies compatible with Supabase Auth
+-- Users can read their own data
+CREATE POLICY "Users can read own data"
+ON users FOR SELECT
+TO authenticated
+USING (auth.uid() = id OR role IN ('admin', 'tenant_admin'));
+
+-- Anyone authenticated can read users (for tenant admins to see their users)
+CREATE POLICY "Authenticated users can read users"
+ON users FOR SELECT  
+TO authenticated
+USING (true);
+
+-- Users can update their own data (basic policy)
+CREATE POLICY "Users can update own data"
+ON users FOR UPDATE
+TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (auth.uid() = id);
+
+-- Admins can update all users
+CREATE POLICY "Admins can update all users"
+ON users FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE id = auth.uid() 
+    AND role = 'admin'
+  )
+)
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE id = auth.uid() 
+    AND role = 'admin'
+  )
+);
+
+-- Admins can insert users
+CREATE POLICY "Admins can insert users"
+ON users FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE id = auth.uid() 
+    AND role = 'admin'
+  )
+);
+
+-- Only admins can delete users
+CREATE POLICY "Only admins can delete users"
+ON users FOR DELETE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE id = auth.uid() 
+    AND role = 'admin'
+  )
+);
+
+-- Update indexes
+DROP INDEX IF EXISTS idx_users_email;
+DROP INDEX IF EXISTS idx_users_role;
+DROP INDEX IF EXISTS idx_users_user_type;
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
+
+-- Create index on tenant_id if it doesn't exist
+CREATE INDEX IF NOT EXISTS idx_users_tenant_id_btree ON users(tenant_id);

@@ -1,0 +1,64 @@
+================================================================================
+  IMMEDIATE ACTION REQUIRED: Run Database Migration
+================================================================================
+
+Your application code is ready, but the database needs to be migrated.
+
+The migration will:
+  - Remove password_hash column (Supabase Auth handles passwords)
+  - Add full_name, emp_code, is_active columns
+  - Migrate user_type to role
+  - Fix RLS policies
+  - Add tenant_admin support
+
+================================================================================
+  STEP-BY-STEP INSTRUCTIONS
+================================================================================
+
+1. OPEN: https://app.supabase.com
+   - Sign in with your Supabase account
+   - Select project: mxrjygxhjeubisjrfmfr
+
+2. NAVIGATE: SQL Editor (left sidebar)
+
+3. CLICK: "New Query" button
+
+4. COPY: The entire contents of this file:
+   → supabase/migrations/20251102130000_fix_users_table_for_supabase_auth.sql
+
+5. PASTE: Into the SQL Editor
+
+6. CLICK: "Run" button (or press Cmd+Enter / Ctrl+Enter)
+
+7. WAIT: For success message ✅
+
+================================================================================
+  VERIFY MIGRATION SUCCEEDED
+================================================================================
+
+After running, verify with this query in SQL Editor:
+
+SELECT column_name FROM information_schema.columns 
+WHERE table_name = 'users' 
+ORDER BY ordinal_position;
+
+You should see:
+  ✓ id
+  ✓ email
+  ✓ full_name       ← NEW
+  ✓ role             ← NEW (replaces user_type)
+  ✓ emp_code         ← NEW
+  ✓ is_active        ← NEW
+  ✓ tenant_id
+  ✓ created_at
+  ✓ updated_at
+  ✗ password_hash    ← SHOULD NOT EXIST
+
+================================================================================
+  AFTER MIGRATION
+================================================================================
+
+See QUICK_START.md for next steps to create your first admin user.
+
+================================================================================
+
