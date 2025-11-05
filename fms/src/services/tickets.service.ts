@@ -14,8 +14,8 @@ export const ticketsService = {
       .from('tickets')
       .select(`
         *,
-        complainant:users(*),
-        executor:executors(*, user:users(*))
+        complainant:users!tickets_complainant_id_fkey(*),
+        executor_profile:executor_profiles!tickets_executor_profile_id_fkey(*, user:users(*))
       `, { count: 'exact' })
       .order('created_at', { ascending: false });
     
@@ -32,7 +32,7 @@ export const ticketsService = {
     }
 
     if (filters?.executor_id) {
-      query = query.eq('executor_id', filters.executor_id);
+      query = query.eq('executor_profile_id', filters.executor_id);
     }
 
     if (filters?.complainant_id) {
@@ -72,7 +72,7 @@ export const ticketsService = {
       }
 
       if (filters?.executor_id) {
-        query = query.eq('executor_id', filters.executor_id);
+        query = query.eq('executor_profile_id', filters.executor_id);
       }
 
       if (filters?.complainant_id) {
@@ -107,8 +107,8 @@ export const ticketsService = {
       .from('tickets')
       .select(`
         *,
-        complainant:users(*),
-        executor:executors(*, user:users(*))
+        complainant:users!tickets_complainant_id_fkey(*),
+        executor_profile:executor_profiles!tickets_executor_profile_id_fkey(*, user:users(*))
       `)
       .eq('id', id)
       .maybeSingle();
@@ -181,10 +181,10 @@ export const ticketsService = {
     if (error) throw error;
   },
 
-  async assignExecutor(ticketId: string, executorId: string) {
+  async assignExecutor(ticketId: string, executorProfileId: string) {
     const { data, error } = await supabase
       .from('tickets')
-      .update({ executor_id: executorId, status: 'in-progress' })
+      .update({ executor_profile_id: executorProfileId, status: 'in-progress' })
       .eq('id', ticketId)
       .select()
       .single();

@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, Building } from 'lucide-react';
 import { authService } from '../services/auth.service';
-import { useTenant } from '../hooks/useTenant';
 
 interface DashboardLoginPageProps {
-  onLogin: (role: 'admin' | 'tenant_admin' | 'executor', isSuperAdmin?: boolean) => void;
+  onLogin: (role: 'admin' | 'executor') => void;
 }
 
 export default function DashboardLoginPage({ onLogin }: DashboardLoginPageProps) {
-  const { setActiveTenantId } = useTenant();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -26,13 +24,10 @@ export default function DashboardLoginPage({ onLogin }: DashboardLoginPageProps)
     try {
       const { user } = await authService.signIn(formData.email, formData.password);
 
-      // set active tenant from profile
-      setActiveTenantId(user.tenant_id ?? null);
-
-      if (user.role === 'admin' || user.role === 'tenant_admin') {
-        onLogin(user.role, user.isSuperAdmin);
+      if (user.role === 'admin') {
+        onLogin('admin');
       } else if (user.role === 'executor') {
-        onLogin('executor', false);
+        onLogin('executor');
       } else {
         setError('Invalid user type for dashboard access');
       }

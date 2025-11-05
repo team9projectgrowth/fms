@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Mail, Lock, Eye, EyeOff, Building } from 'lucide-react';
 import { authService } from '../services/auth.service';
+import { useTenant } from '../hooks/useTenant';
 
 interface DashboardLoginPageProps {
   onLogin: (role: 'admin' | 'executor' | 'tenant_admin') => void;
 }
 
 export default function DashboardLoginPage({ onLogin }: DashboardLoginPageProps) {
+  const { setActiveTenantId } = useTenant();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -23,6 +25,14 @@ export default function DashboardLoginPage({ onLogin }: DashboardLoginPageProps)
 
     try {
       const { user } = await authService.signIn(formData.email, formData.password);
+
+      // Set activeTenantId from the logged-in user
+      if (user.tenant_id) {
+        setActiveTenantId(user.tenant_id);
+        console.log('Set activeTenantId from login:', user.tenant_id);
+      } else {
+        setActiveTenantId(null);
+      }
 
       if (user.role === 'admin') {
         onLogin('admin');

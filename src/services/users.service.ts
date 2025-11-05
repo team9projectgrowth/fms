@@ -2,15 +2,11 @@ import { supabase } from '../lib/supabase';
 import type { User, UserType, CreateUserInput } from '../types/database';
 
 export const usersService = {
-  async getUsers(userType?: UserType, tenantId?: string) {
+  async getUsers(userType?: UserType) {
     let query = supabase
       .from('users')
       .select('*')
       .order('created_at', { ascending: false });
-
-    if (tenantId) {
-      query = query.eq('tenant_id', tenantId);
-    }
 
     if (userType) {
       query = query.eq('user_type', userType);
@@ -33,34 +29,30 @@ export const usersService = {
     return data as User | null;
   },
 
-  async createUser(input: CreateUserInput, tenantId?: string) {
+  async createUser(input: CreateUserInput) {
     const { email, password, ...userData } = input;
 
-    // Get current session for authorization
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) {
-      throw new Error('Not authenticated');
-    }
-
-    // Call Edge Function to create user securely
-    const { data, error } = await supabase.functions.invoke('create-user', {
-      body: {
-        email,
-        password,
-        ...userData,
-        tenant_id: tenantId || (userData as any).tenant_id || null,
-      },
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-      },
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
     });
 
-    if (error) throw error;
-    if (!data || !data.user) {
-      throw new Error(data?.error || 'User creation failed');
-    }
+    if (authError) throw authError;
+    if (!authData.user) throw new Error('User creation failed');
 
-    return data.user as User;
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .insert({
+        id: authData.user.id,
+        email,
+        ...userData,
+      })
+      .select()
+      .single();
+
+    if (userError) throw userError;
+    return user as User;
   },
 
   async updateUser(id: string, updates: Partial<User>) {

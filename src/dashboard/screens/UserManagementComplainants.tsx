@@ -2,14 +2,12 @@ import { useState, useEffect } from 'react';
 import { Plus, Download, Upload, Search, Edit, Trash2 } from 'lucide-react';
 import { usersService } from '../../services/users.service';
 import type { User } from '../../types/database';
-import { useTenant } from '../../hooks/useTenant';
 
 interface UserManagementComplainantsProps {
   onNavigate: (page: string, userId?: string) => void;
 }
 
 export default function UserManagementComplainants({ onNavigate }: UserManagementComplainantsProps) {
-  const { activeTenantId } = useTenant();
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -30,7 +28,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const data = await usersService.getUsers('complainant', activeTenantId || undefined);
+      const data = await usersService.getUsers('complainant');
       setUsers(data);
       const ids = data.map(u => u.id);
       const stats = await usersService.getComplainantTicketStats(ids);

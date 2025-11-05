@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import { Plus, Download, Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
 import CreateTicketForm from './CreateTicketForm';
-import { useTickets } from '../../hooks/useTickets';
-import type { TicketFilters } from '../../types/database';
 
 interface AdminAllTicketsProps {
   onNavigate: (page: string, ticketId?: string) => void;
@@ -14,15 +12,14 @@ export default function AdminAllTickets({ onNavigate }: AdminAllTicketsProps) {
   const [selectedPriority, setSelectedPriority] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const limit = 10;
 
-  const filters: TicketFilters = {
-    status: selectedStatus.length > 0 ? selectedStatus as any : undefined,
-    priority: selectedPriority.length > 0 ? selectedPriority as any : undefined,
-    search: searchTerm || undefined,
-  };
-
-  const { tickets, total, totalPages, loading, createTicket, fetchTickets } = useTickets(filters, currentPage, limit);
+  const tickets = [
+    { id: 'TKT-1001', title: 'AC not working', complainant: 'John Smith', executor: 'Mike Johnson', status: 'open', priority: 'high', category: 'HVAC' },
+    { id: 'TKT-1002', title: 'Broken chair', complainant: 'Sarah Lee', executor: 'Tom Brown', status: 'in-progress', priority: 'low', category: 'Furniture' },
+    { id: 'TKT-1003', title: 'Water leakage', complainant: 'Mike Davis', executor: 'Mike Johnson', status: 'open', priority: 'critical', category: 'Plumbing' },
+    { id: 'TKT-1004', title: 'Printer issue', complainant: 'Emily Chen', executor: 'Sarah Wilson', status: 'resolved', priority: 'medium', category: 'IT' },
+    { id: 'TKT-1005', title: 'Light not working', complainant: 'David Kim', executor: 'Tom Brown', status: 'in-progress', priority: 'low', category: 'Electrical' },
+  ];
 
   const getPriorityIcon = (priority: string) => {
     switch (priority) {
@@ -34,28 +31,9 @@ export default function AdminAllTickets({ onNavigate }: AdminAllTicketsProps) {
     }
   };
 
-  const handleCreateTicket = async (ticketData: any) => {
-    try {
-      await createTicket({
-        title: ticketData.title,
-        description: ticketData.description,
-        category: ticketData.category,
-        priority: ticketData.priority as any,
-        type: ticketData.type,
-        location: ticketData.location,
-        building: ticketData.building,
-        floor: ticketData.floor,
-        room: ticketData.room,
-        complainant_name: ticketData.complainant,
-        complainant_email: ticketData.email,
-        complainant_phone: ticketData.phone,
-      });
-      setShowCreateForm(false);
-      await fetchTickets();
-    } catch (error) {
-      console.error('Failed to create ticket:', error);
-      alert('Failed to create ticket. Please try again.');
-    }
+  const handleCreateTicket = (ticketData: any) => {
+    console.log('New ticket created:', ticketData);
+    alert('Ticket created successfully!\n\nIn a production environment, this would:\n1. Save to Supabase database\n2. Auto-assign based on allocation rules\n3. Send notifications to executor\n4. Calculate SLA deadlines');
   };
 
   return (
@@ -86,10 +64,7 @@ export default function AdminAllTickets({ onNavigate }: AdminAllTicketsProps) {
                 type="text"
                 placeholder="Search tickets..."
                 value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
+                onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
               />
             </div>
@@ -97,35 +72,23 @@ export default function AdminAllTickets({ onNavigate }: AdminAllTicketsProps) {
           <div>
             <select
               multiple
-              value={selectedStatus}
-              onChange={(e) => {
-                const values = Array.from(e.target.selectedOptions, option => option.value);
-                setSelectedStatus(values);
-                setCurrentPage(1);
-              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
             >
-              <option value="open">Open</option>
-              <option value="in-progress">In Progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
+              <option>Open</option>
+              <option>In Progress</option>
+              <option>Resolved</option>
+              <option>Closed</option>
             </select>
           </div>
           <div>
             <select
               multiple
-              value={selectedPriority}
-              onChange={(e) => {
-                const values = Array.from(e.target.selectedOptions, option => option.value);
-                setSelectedPriority(values);
-                setCurrentPage(1);
-              }}
               className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
             >
-              <option value="critical">🔴 Critical</option>
-              <option value="high">🟠 High</option>
-              <option value="medium">🟡 Medium</option>
-              <option value="low">🟢 Low</option>
+              <option>🔴 Critical</option>
+              <option>🟠 High</option>
+              <option>🟡 Medium</option>
+              <option>🟢 Low</option>
             </select>
           </div>
         </div>
@@ -152,97 +115,73 @@ export default function AdminAllTickets({ onNavigate }: AdminAllTicketsProps) {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                  Loading tickets...
+            {tickets.map((ticket, index) => (
+              <tr
+                key={ticket.id}
+                onClick={() => onNavigate('executor-ticket', ticket.id)}
+                className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer"
+              >
+                <td className="px-4 py-3">
+                  <input
+                    type="checkbox"
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-4 h-4 text-primary border-gray-300 rounded"
+                  />
                 </td>
-              </tr>
-            ) : tickets.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
-                  No tickets found
+                <td className="px-4 py-3 text-sm font-medium text-gray-900">{ticket.id}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{ticket.title}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{ticket.complainant}</td>
+                <td className="px-4 py-3 text-sm text-gray-700">{ticket.executor}</td>
+                <td className="px-4 py-3">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    ticket.status === 'open' ? 'bg-info/10 text-info' :
+                    ticket.status === 'in-progress' ? 'bg-warning/10 text-warning' :
+                    'bg-success/10 text-success'
+                  }`}>
+                    {ticket.status}
+                  </span>
                 </td>
+                <td className="px-4 py-3 text-sm">
+                  <span className="flex items-center">
+                    <span className="mr-1">{getPriorityIcon(ticket.priority)}</span>
+                    {ticket.priority}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-700">{ticket.category}</td>
               </tr>
-            ) : (
-              tickets.map((ticket) => (
-                <tr
-                  key={ticket.id}
-                  onClick={() => onNavigate('executor-ticket', ticket.id)}
-                  className="border-b border-gray-200 hover:bg-gray-50 cursor-pointer"
-                >
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-4 h-4 text-primary border-gray-300 rounded"
-                    />
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{ticket.ticket_number}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{ticket.title}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {ticket.complainant?.name || ticket.complainant_name || 'N/A'}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {ticket.executor_profile?.user?.name || 'Unassigned'}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium capitalize ${
-                      ticket.status === 'open' ? 'bg-info/10 text-info' :
-                      ticket.status === 'in-progress' ? 'bg-warning/10 text-warning' :
-                      ticket.status === 'resolved' ? 'bg-success/10 text-success' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {ticket.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className="flex items-center capitalize">
-                      <span className="mr-1">{getPriorityIcon(ticket.priority)}</span>
-                      {ticket.priority}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{ticket.category}</td>
-                </tr>
-              ))
-            )}
+            ))}
           </tbody>
         </table>
       </div>
 
       <div className="flex items-center justify-between mt-6">
         <div className="text-sm text-gray-500">
-          Showing {(currentPage - 1) * limit + 1}-{Math.min(currentPage * limit, total)} of {total} tickets
+          Showing 1-5 of 127 tickets
         </div>
         <div className="flex space-x-2">
           <button
             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-            disabled={currentPage === 1 || loading}
+            disabled={currentPage === 1}
             className="px-3 py-2 border border-gray-300 rounded-card hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft size={16} />
           </button>
-          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-            const page = currentPage <= 3 ? i + 1 : currentPage - 2 + i;
-            if (page > totalPages) return null;
-            return (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={`px-3 py-2 rounded-card ${
-                  currentPage === page
-                    ? 'bg-primary text-white'
-                    : 'border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                {page}
-              </button>
-            );
-          })}
+          {[1, 2, 3, 4, 5].map(page => (
+            <button
+              key={page}
+              onClick={() => setCurrentPage(page)}
+              className={`px-3 py-2 rounded-card ${
+                currentPage === page
+                  ? 'bg-primary text-white'
+                  : 'border border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              {page}
+            </button>
+          ))}
           <button
-            onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-            disabled={currentPage >= totalPages || loading}
-            className="px-3 py-2 border border-gray-300 rounded-card hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setCurrentPage(currentPage + 1)}
+            className="px-3 py-2 border border-gray-300 rounded-card hover:bg-gray-50"
           >
             <ChevronRight size={16} />
           </button>

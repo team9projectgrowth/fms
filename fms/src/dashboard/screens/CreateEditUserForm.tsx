@@ -124,13 +124,26 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
         });
 
         if (formData.type === 'executor') {
-          await executorsService.createExecutor({
-            user_id: newUser.id,
-            skills: formData.skills,
-            max_tickets: formData.maxTickets,
-            work_start: formData.workStart,
-            work_end: formData.workEnd,
-          });
+          // Get tenant_id from the created user (it should be automatically set by the service)
+          const tenantId = (newUser as any).tenant_id;
+          
+          if (!tenantId) {
+            throw new Error('Tenant ID is required to create an executor profile. The user was created but tenant_id is missing.');
+          }
+          
+          try {
+            await executorsService.createExecutor({
+              tenant_id: tenantId,
+              user_id: newUser.id,
+              skills: formData.skills || [],
+              max_concurrent_tickets: formData.maxTickets || 10,
+              full_name: formData.name,
+            });
+          } catch (executorError) {
+            console.error('Error creating executor profile:', executorError);
+            // If executor profile creation fails, we should still show an error
+            throw new Error(`Failed to create executor profile: ${executorError instanceof Error ? executorError.message : 'Unknown error'}`);
+          }
         }
 
         setSuccessMessage('User created successfully!');

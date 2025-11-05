@@ -3,10 +3,8 @@ import { supabase } from '../lib/supabase';
 export interface AuthUser {
   id: string;
   email: string;
-  role: 'admin' | 'tenant_admin' | 'executor';
+  role: 'admin' | 'executor';
   name: string;
-  tenant_id?: string | null;
-  isSuperAdmin: boolean;
 }
 
 export const authService = {
@@ -26,7 +24,7 @@ export const authService = {
 
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('user_type, name, tenant_id')
+      .select('user_type, name')
       .eq('id', authData.user.id)
       .maybeSingle();
 
@@ -35,21 +33,16 @@ export const authService = {
       throw new Error('User profile not found');
     }
 
-    if (userData.user_type !== 'admin' && userData.user_type !== 'tenant_admin' && userData.user_type !== 'executor') {
+    if (userData.user_type !== 'admin' && userData.user_type !== 'executor') {
       await supabase.auth.signOut();
-      throw new Error('Invalid user role. Only admin, tenant_admin, and executor accounts can sign in.');
+      throw new Error('Invalid user role. Only admin and executor accounts can sign in.');
     }
-
-    const tenantId = (userData as any).tenant_id ?? null;
-    const isSuperAdmin = userData.user_type === 'admin' && tenantId === null;
 
     const user: AuthUser = {
       id: authData.user.id,
       email: authData.user.email!,
-      role: userData.user_type as 'admin' | 'tenant_admin' | 'executor',
-      name: userData.name || 'User',
-      tenant_id: tenantId,
-      isSuperAdmin,
+      role: userData.user_type as 'admin' | 'executor',
+      name: userData.name || 'User'
     };
 
     return { user };
@@ -71,7 +64,7 @@ export const authService = {
 
     const { data: userData, error: userError } = await supabase
       .from('users')
-      .select('user_type, name, tenant_id')
+      .select('user_type, name')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -79,20 +72,15 @@ export const authService = {
       return null;
     }
 
-    if (userData.user_type !== 'admin' && userData.user_type !== 'tenant_admin' && userData.user_type !== 'executor') {
+    if (userData.user_type !== 'admin' && userData.user_type !== 'executor') {
       return null;
     }
-
-    const tenantId = (userData as any).tenant_id ?? null;
-    const isSuperAdmin = userData.user_type === 'admin' && tenantId === null;
 
     return {
       id: user.id,
       email: user.email!,
-      role: userData.user_type as 'admin' | 'tenant_admin' | 'executor',
-      name: userData.name || 'User',
-      tenant_id: tenantId,
-      isSuperAdmin,
+      role: userData.user_type as 'admin' | 'executor',
+      name: userData.name || 'User'
     };
   },
 

@@ -1,37 +1,12 @@
-import { useState, useEffect } from 'react';
 import { Edit, BarChart3 } from 'lucide-react';
-import { configService } from '../../services/config.service';
-import { useTenant } from '../../hooks/useTenant';
-import type { Priority } from '../../types/database';
 
 export default function ConfigPriorityLevels() {
-  const { activeTenantId } = useTenant();
-  const [priorities, setPriorities] = useState<Priority[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadPriorities();
-  }, [activeTenantId]);
-
-  async function loadPriorities() {
-    try {
-      setLoading(true);
-      const data = await configService.getAllPriorities(activeTenantId || undefined);
-      setPriorities(data);
-    } catch (error) {
-      console.error('Failed to load priorities:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading priorities...</div>
-      </div>
-    );
-  }
+  const priorities = [
+    { id: '1', icon: '🔴', color: '#FF3333', name: 'Critical', displayName: 'Critical', level: 1, keywords: 'urgent, emergency, critical', sla: '2hrs', tickets: 45, active: true },
+    { id: '2', icon: '🟠', color: '#FFAA00', name: 'High', displayName: 'High Priority', level: 2, keywords: 'high, important, asap', sla: '4hrs', tickets: 78, active: true },
+    { id: '3', icon: '🟡', color: '#FFD700', name: 'Medium', displayName: 'Medium Priority', level: 3, keywords: 'medium, normal', sla: '8hrs', tickets: 123, active: true },
+    { id: '4', icon: '🟢', color: '#00CC66', name: 'Low', displayName: 'Low Priority', level: 4, keywords: 'low, minor, routine', sla: '24hrs', tickets: 89, active: true }
+  ];
 
   return (
     <div>
@@ -45,7 +20,7 @@ export default function ConfigPriorityLevels() {
                 <div className="text-4xl mr-4">{priority.icon}</div>
                 <div className="flex-1">
                   <div className="flex items-center mb-2">
-                    <h3 className="text-xl font-bold text-gray-900 mr-3">{priority.name}</h3>
+                    <h3 className="text-xl font-bold text-gray-900 mr-3">{priority.displayName}</h3>
                     <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded font-medium">
                       Level {priority.level}
                     </span>
@@ -58,34 +33,31 @@ export default function ConfigPriorityLevels() {
 
                   <div className="grid grid-cols-3 gap-4 mb-3">
                     <div>
-                      <div className="text-xs text-gray-500 mb-1">Name</div>
+                      <div className="text-xs text-gray-500 mb-1">Internal Name</div>
                       <div className="text-sm font-medium text-gray-900">{priority.name}</div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500 mb-1">Color</div>
                       <div className="flex items-center">
-                        {priority.color ? (
-                          <>
-                            <div className="w-6 h-6 rounded mr-2" style={{ backgroundColor: priority.color }}></div>
-                            <span className="text-xs text-gray-700">{priority.color}</span>
-                          </>
-                        ) : (
-                          <span className="text-xs text-gray-500">No color</span>
-                        )}
+                        <div className="w-6 h-6 rounded mr-2" style={{ backgroundColor: priority.color }}></div>
+                        <span className="text-xs text-gray-700">{priority.color}</span>
                       </div>
                     </div>
                     <div>
                       <div className="text-xs text-gray-500 mb-1">Resolution SLA</div>
-                      <div className="text-sm font-medium text-gray-900">
-                        {priority.sla_hours ? `${priority.sla_hours} hrs` : 'N/A'}
-                      </div>
+                      <div className="text-sm font-medium text-gray-900">{priority.sla}</div>
                     </div>
+                  </div>
+
+                  <div className="mb-3">
+                    <div className="text-xs text-gray-500 mb-1">AI Keywords</div>
+                    <div className="text-sm text-gray-700">{priority.keywords}</div>
                   </div>
 
                   <div className="flex items-center pt-3 border-t border-gray-200">
                     <BarChart3 size={16} className="text-gray-500 mr-2" />
                     <span className="text-sm text-gray-500">
-                      Priority Level {priority.level}
+                      {priority.tickets} tickets in last 30 days
                     </span>
                   </div>
                 </div>

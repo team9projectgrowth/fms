@@ -1,6 +1,7 @@
-import { Search, Edit, Eye, Send, Plus } from 'lucide-react';
+import { Search, Edit, Plus, Trash2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { executorsService } from '../../services/executors.service';
+import { useTenant } from '../../hooks/useTenant';
 import type { ExecutorWithProfile } from '../../types/database';
 
 interface UserManagementExecutorsProps {
@@ -16,6 +17,7 @@ interface TicketCounts {
 }
 
 export default function UserManagementExecutors({ onNavigate }: UserManagementExecutorsProps) {
+  const { activeTenantId } = useTenant();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [selectedAvailability, setSelectedAvailability] = useState('');
@@ -25,7 +27,7 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
 
   useEffect(() => {
     loadExecutors();
-  }, []);
+  }, [activeTenantId]);
 
   useEffect(() => {
     filterExecutors();
@@ -34,7 +36,12 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
   const loadExecutors = async () => {
     try {
       setLoading(true);
-      const data = await executorsService.getExecutors();
+      console.log('Loading executors for tenant:', activeTenantId);
+      
+      // Pass activeTenantId to filter executors by tenant
+      const data = await executorsService.getExecutors(activeTenantId);
+      
+      console.log('Loaded executors:', data.length, data);
       
       // Load ticket counts for all executors
       const executorsWithCounts = await Promise.all(
@@ -68,8 +75,10 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
       );
       
       setExecutors(executorsWithCounts);
+      console.log('Set executors with counts:', executorsWithCounts.length);
     } catch (err) {
       console.error('Failed to load executors:', err);
+      alert('Failed to load executors: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
       setLoading(false);
     }
@@ -79,22 +88,34 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
     let filtered = executors;
 
     if (searchTerm) {
-      filtered = filtered.filter(executor =>
-        executor.user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        executor.user.email.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      filtered = filtered.filter(executor => {
+        const userName = executor.user?.full_name || executor.user?.name || '';
+        const userEmail = executor.user?.email || '';
+        const executorName = executor.full_name || '';
+        const searchLower = searchTerm.toLowerCase();
+        return userName.toLowerCase().includes(searchLower) ||
+               userEmail.toLowerCase().includes(searchLower) ||
+               executorName.toLowerCase().includes(searchLower);
+      });
     }
 
     if (selectedSkills.length > 0) {
-      filtered = filtered.filter(executor =>
-        selectedSkills.some(skill => executor.skills?.includes(skill))
-      );
+      filtered = filtered.filter(executor => {
+        const executorSkills = executor.skills || [];
+        return selectedSkills.some(skill => 
+          executorSkills.some((executorSkill: any) => 
+            (typeof executorSkill === 'string' && executorSkill === skill) ||
+            (typeof executorSkill === 'object' && executorSkill?.name === skill)
+          )
+        );
+      });
     }
 
     if (selectedAvailability) {
-      filtered = filtered.filter(executor =>
-        executor.availability.toLowerCase() === selectedAvailability.toLowerCase()
-      );
+      filtered = filtered.filter(executor => {
+        const availability = executor.availability_status || executor.availability || '';
+        return availability.toLowerCase() === selectedAvailability.toLowerCase();
+      });
     }
 
     setFilteredExecutors(filtered);
@@ -110,7 +131,12 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
   };
 
   const allSkills = Array.from(
-    new Set(executors.flatMap(e => e.skills || []))
+    new Set(executors.flatMap(e => {
+      const skills = e.skills || [];
+      return skills.map((skill: any) => 
+        typeof skill === 'string' ? skill : (skill?.name || skill?.label || String(skill))
+      );
+    }))
   );
 
   if (loading) {
@@ -187,107 +213,169 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-6">
-          {filteredExecutors.map((executor) => (
-            <div key={executor.id} className="bg-white rounded-card shadow-sm p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center">
-                  <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-white font-bold text-lg mr-3">
-                    {executor.user.name.split(' ').map(n => n[0]).join('')}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900">{executor.user.name}</h3>
-                    <div className="flex items-center mt-1">
-                      <div className={`w-2 h-2 rounded-full ${getAvailabilityColor(executor.availability)} mr-2`}></div>
-                      <span className="text-sm text-gray-500 capitalize">{executor.availability}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => onNavigate('edit-user', executor.user.id)}
-                    className="p-2 text-gray-700 hover:bg-gray-100 rounded"
-                  >
-                    <Edit size={16} />
-                  </button>
-                  <button className="p-2 text-gray-700 hover:bg-gray-100 rounded">
-                    <Eye size={16} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="mb-4">
-                <div className="flex flex-wrap gap-2">
-                  {(executor.skills || []).map((skill, index) => (
-                    <span key={index} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
-                      {skill}
-                    </span>
-                  ))}
-                  {(!executor.skills || executor.skills.length === 0) && (
-                    <span className="text-xs text-gray-400">No skills assigned</span>
-                  )}
-                </div>
-              </div>
-
-              {/* Ticket Counts */}
-              {executor.ticketCounts && (
-                <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-                  <div className="text-sm font-semibold text-gray-700 mb-2">Ticket Statistics</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total:</span>
-                      <span className="font-medium text-gray-900">{executor.ticketCounts.total}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Open:</span>
-                      <span className="font-medium text-danger">{executor.ticketCounts.open}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">In Progress:</span>
-                      <span className="font-medium text-warning">{executor.ticketCounts.inProgress}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Resolved:</span>
-                      <span className="font-medium text-success">{executor.ticketCounts.resolved}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="mb-4">
-                <div className="flex justify-between text-sm text-gray-500 mb-2">
-                  <span>Current Load</span>
-                  <span className="font-medium text-gray-900">
-                    {executor.current_load}/{executor.max_tickets} tickets
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full ${
-                      (executor.current_load / executor.max_tickets) * 100 > 75
-                        ? 'bg-danger'
-                        : (executor.current_load / executor.max_tickets) * 100 > 50
-                        ? 'bg-warning'
-                        : 'bg-success'
-                    }`}
-                    style={{ width: `${(executor.current_load / executor.max_tickets) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-gray-200">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="text-gray-500">{executor.user.email}</div>
-                  <div className="flex items-center">
-                    <Send size={14} className={`mr-1 ${executor.telegram_connected ? 'text-success' : 'text-gray-400'}`} />
-                    <span className={executor.telegram_connected ? 'text-success' : 'text-gray-400'}>
-                      Telegram
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="bg-white rounded-card shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Availability</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Skills</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Load</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tickets</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredExecutors.map((executor) => {
+                  const executorName = executor.user?.full_name || executor.user?.name || executor.full_name || 'Unknown';
+                  const availability = executor.availability_status || executor.availability || 'offline';
+                  const currentLoad = (executor as any).assigned_tickets_count || executor.current_load || 0;
+                  const maxTickets = (executor as any).max_concurrent_tickets || executor.max_tickets || 10;
+                  const loadPercentage = maxTickets > 0 ? (currentLoad / maxTickets) * 100 : 0;
+                  
+                  return (
+                    <tr key={executor.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                            {executorName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          </div>
+                          <div className="text-sm font-medium text-gray-900">{executorName}</div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-500">{executor.user?.email || 'N/A'}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className={`w-2 h-2 rounded-full ${getAvailabilityColor(availability)} mr-2`}></div>
+                          <span className="text-sm text-gray-900 capitalize">{availability}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1 max-w-xs">
+                          {(executor.skills || []).slice(0, 3).map((skill: any, index: number) => {
+                            const skillName = typeof skill === 'string' ? skill : (skill?.name || skill?.label || 'Unknown');
+                            return (
+                              <span key={index} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
+                                {skillName}
+                              </span>
+                            );
+                          })}
+                          {(!executor.skills || executor.skills.length === 0) && (
+                            <span className="text-xs text-gray-400">None</span>
+                          )}
+                          {executor.skills && executor.skills.length > 3 && (
+                            <span className="text-xs text-gray-500">+{executor.skills.length - 3} more</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-1 mr-2">
+                            <div className="flex justify-between text-xs text-gray-600 mb-1">
+                              <span>{currentLoad}/{maxTickets}</span>
+                              <span className={`font-medium ${
+                                loadPercentage > 75 ? 'text-danger' : 
+                                loadPercentage > 50 ? 'text-warning' : 
+                                'text-success'
+                              }`}>
+                                {Math.round(loadPercentage)}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  loadPercentage > 75 ? 'bg-danger' :
+                                  loadPercentage > 50 ? 'bg-warning' :
+                                  'bg-success'
+                                }`}
+                                style={{ width: `${Math.min(loadPercentage, 100)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {executor.ticketCounts ? (
+                          <div className="text-sm">
+                            <div className="flex items-center gap-3">
+                              <div className="text-center">
+                                <div className="font-medium text-gray-900">{executor.ticketCounts.total}</div>
+                                <div className="text-xs text-gray-500">Total</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-medium text-danger">{executor.ticketCounts.open}</div>
+                                <div className="text-xs text-gray-500">Open</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-medium text-warning">{executor.ticketCounts.inProgress}</div>
+                                <div className="text-xs text-gray-500">Active</div>
+                              </div>
+                              <div className="text-center">
+                                <div className="font-medium text-success">{executor.ticketCounts.resolved}</div>
+                                <div className="text-xs text-gray-500">Done</div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">Loading...</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => onNavigate('edit-user', executor.user?.id || (executor as any).user_id)}
+                            className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                            title="Edit"
+                          >
+                            <Edit size={16} />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (confirm('Are you sure you want to delete this executor?')) {
+                                try {
+                                  await executorsService.deleteExecutor(executor.id);
+                                  await loadExecutors();
+                                } catch (err) {
+                                  alert('Failed to delete executor: ' + (err instanceof Error ? err.message : 'Unknown error'));
+                                }
+                              }
+                            }}
+                            className="p-2 text-danger hover:bg-red-50 rounded transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                const newStatus = availability === 'available' ? 'busy' : availability === 'busy' ? 'offline' : 'available';
+                                await executorsService.updateAvailability(executor.id, newStatus as any);
+                                await loadExecutors();
+                              } catch (err) {
+                                alert('Failed to update availability: ' + (err instanceof Error ? err.message : 'Unknown error'));
+                              }
+                            }}
+                            className={`p-2 rounded transition-colors ${
+                              availability === 'available' ? 'text-success hover:bg-green-50' :
+                              availability === 'busy' ? 'text-warning hover:bg-yellow-50' :
+                              'text-gray-500 hover:bg-gray-100'
+                            }`}
+                            title={`Toggle availability (currently ${availability})`}
+                          >
+                            <div className={`w-3 h-3 rounded-full ${getAvailabilityColor(availability)}`}></div>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

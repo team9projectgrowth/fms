@@ -71,6 +71,7 @@ export const usersService = {
           
           if (userFetchError) {
             console.error('Error fetching current user for tenant_id:', userFetchError);
+            throw new Error('Failed to verify user permissions. Please try again.');
           }
           
           // If current user is tenant_admin, use their tenant_id for new users
@@ -78,16 +79,33 @@ export const usersService = {
             tenantId = currentUser.tenant_id;
             console.log('Setting tenant_id for new user:', tenantId);
           } else if (currentUser?.role === 'tenant_admin' && !currentUser.tenant_id) {
-            console.warn('Tenant admin has no tenant_id set!');
+            throw new Error('Tenant admin has no tenant assigned. Please contact support.');
+          } else if (currentUser?.role === 'admin' && currentUser.tenant_id === null) {
+            // Super admin can create users without tenant_id (for admin users)
+            // But executors and complainants require tenant_id
+            if (user_type === 'executor' || user_type === 'complainant') {
+              throw new Error('Tenant ID is required for executors and complainants. Please select a tenant.');
+            }
+            tenantId = null; // Super admin creating admin user
           }
         } catch (err) {
+          if (err instanceof Error && err.message.includes('Tenant ID is required')) {
+            throw err;
+          }
           console.error('Error getting tenant_id for new user:', err);
+          throw new Error('Failed to determine tenant. Please try again.');
         }
       }
     }
     
+    // REQUIRE tenant_id for executors and complainants (unless super admin explicitly sets it to null)
+    if ((user_type === 'executor' || user_type === 'complainant') && !tenantId) {
+      throw new Error(`Tenant ID is required for ${user_type} users. Please ensure you are logged in as a tenant admin or select a tenant.`);
+    }
+    
+    // Super admin users can have null tenant_id, but others should have it
     if (!tenantId && user_type !== 'admin') {
-      console.warn('Warning: tenant_id not set for non-admin user:', user_type);
+      throw new Error('Tenant ID is required for this user type. Please contact support if you are a tenant admin.');
     }
 
     // Use signUp for public API (works for tenant admins)
@@ -106,6 +124,11 @@ export const usersService = {
     if (!authData.user) throw new Error('User creation failed');
 
     // Map user_type to role and handle column name differences
+    // Convert empty string emp_code to NULL to avoid unique constraint violations
+    const empCode = userData.employee_id && userData.employee_id.trim() !== '' 
+      ? userData.employee_id.trim() 
+      : null;
+
     const { data: user, error: userError } = await supabase
       .from('users')
       .insert({
@@ -113,9 +136,9 @@ export const usersService = {
         email,
         full_name: input.name,
         role: user_type, // Database uses 'role' column
-        phone: userData.phone,
-        department: userData.department,
-        emp_code: userData.employee_id,
+        phone: userData.phone || null,
+        department: userData.department || null,
+        emp_code: empCode, // Use NULL instead of empty string
         tenant_id: tenantId,
         is_active: userData.active !== false,
       })
@@ -132,6 +155,18 @@ export const usersService = {
         tenantId,
         userType: user_type
       });
+      
+      // Provide user-friendly error messages
+      if (userError.code === '23505') { // Unique constraint violation
+        if (userError.message?.includes('users_tenant_id_emp_code_key')) {
+          throw new Error('An employee code already exists for this tenant. Please use a unique employee code or leave it empty.');
+        } else if (userError.message?.includes('users_tenant_id_email_key')) {
+          throw new Error('A user with this email already exists in this tenant.');
+        } else {
+          throw new Error('A user with this information already exists. Please check email and employee code.');
+        }
+      }
+      
       throw userError;
     }
     return user as User;
@@ -143,9 +178,14 @@ export const usersService = {
     if (updates.name) dbUpdates.full_name = updates.name;
     if (updates.email) dbUpdates.email = updates.email;
     if (updates.user_type) dbUpdates.role = updates.user_type;
-    if (updates.phone !== undefined) dbUpdates.phone = updates.phone;
-    if (updates.department !== undefined) dbUpdates.department = updates.department;
-    if (updates.employee_id !== undefined) dbUpdates.emp_code = updates.employee_id;
+    if (updates.phone !== undefined) dbUpdates.phone = updates.phone || null;
+    if (updates.department !== undefined) dbUpdates.department = updates.department || null;
+    // Convert empty string emp_code to NULL to avoid unique constraint violations
+    if (updates.employee_id !== undefined) {
+      dbUpdates.emp_code = updates.employee_id && updates.employee_id.trim() !== '' 
+        ? updates.employee_id.trim() 
+        : null;
+    }
     if (updates.tenant_id !== undefined) dbUpdates.tenant_id = updates.tenant_id;
     if (updates.active !== undefined) dbUpdates.is_active = updates.active;
 

@@ -1,17 +1,18 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, ReactNode } from 'react';
 
-type TenantContextValue = {
+type TenantContextType = {
   activeTenantId: string | null;
   setActiveTenantId: (id: string | null) => void;
 };
 
-const TenantContext = createContext<TenantContextValue>({
+const TenantContext = createContext<TenantContextType>({
   activeTenantId: null,
   setActiveTenantId: () => {},
 });
 
-export function TenantProvider({ children }: { children: React.ReactNode }) {
+export function TenantProvider({ children }: { children: ReactNode }) {
   const [activeTenantId, setActiveTenantId] = useState<string | null>(null);
+
   return (
     <TenantContext.Provider value={{ activeTenantId, setActiveTenantId }}>
       {children}
@@ -20,8 +21,10 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useTenant() {
-  return useContext(TenantContext);
+  const context = useContext(TenantContext);
+  if (!context) {
+    throw new Error('useTenant must be used within TenantProvider');
+  }
+  return context;
 }
-
-
 

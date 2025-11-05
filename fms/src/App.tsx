@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTenant } from './hooks/useTenant';
 import Navigation from './components/Navigation';
 import Footer from './components/Footer';
 import HomePage from './pages/HomePage';
@@ -31,6 +32,7 @@ import TenantManagement from './dashboard/screens/TenantManagement';
 import SuperAdminTenantManagement from './dashboard/screens/SuperAdminTenantManagement';
 
 function App() {
+  const { setActiveTenantId } = useTenant();
   const [currentPage, setCurrentPage] = useState('home');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState<'admin' | 'executor' | 'tenant_admin' | null>(null);
@@ -80,9 +82,27 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleLogin = (role: 'admin' | 'executor' | 'tenant_admin') => {
+  const handleLogin = async (role: 'admin' | 'executor' | 'tenant_admin') => {
     setIsAuthenticated(true);
     setUserRole(role);
+    
+    // Get current user's tenant_id and set it in context
+    if (role === 'tenant_admin' || role === 'executor') {
+      try {
+        const { authService } = await import('./services/auth.service');
+        const currentUser = await authService.getCurrentUser();
+        if (currentUser?.tenant_id) {
+          setActiveTenantId(currentUser.tenant_id);
+          console.log('Set activeTenantId:', currentUser.tenant_id);
+        }
+      } catch (err) {
+        console.error('Error getting tenant_id on login:', err);
+      }
+    } else {
+      // Super admin - no tenant_id
+      setActiveTenantId(null);
+    }
+    
     if (role === 'admin') {
       setCurrentPage('admin-dashboard');
       window.location.hash = 'admin-dashboard';
@@ -98,6 +118,7 @@ function App() {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setUserRole(null);
+    setActiveTenantId(null);
     setCurrentPage('home');
     window.location.hash = '';
   };

@@ -1,47 +1,27 @@
 import { supabase } from '../lib/supabase';
-import type { Executor, ExecutorWithUser, ExecutorWithProfile, CreateExecutorInput, ExecutorAvailability } from '../types/database';
+import type { ExecutorProfile, ExecutorProfileWithUser, ExecutorAvailability } from '../types/database';
 import { authService } from './auth.service';
 
+// Note: This service uses executor_profiles table, not executors
 export const executorsService = {
-  async getExecutors() {
-    // For tenant admins, filter by tenant_id through executor_profiles
-    const currentUser = await authService.getCurrentUser();
-    
-    // If tenant admin, first get executor IDs from executor_profiles
-    let executorIds: string[] | undefined;
-    if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
-      const { data: profiles, error: profileError } = await supabase
-        .from('executor_profiles')
-        .select('executor_id')
-        .eq('tenant_id', currentUser.tenant_id);
-
-      if (profileError) {
-        console.error('Error fetching executor profiles:', profileError);
-        throw profileError;
-      }
-
-      executorIds = profiles?.map(p => p.executor_id) || [];
-      
-      // If no executor profiles found for this tenant, return empty array
-      if (executorIds.length === 0) {
-        return [];
-      }
-    }
-
+  async getExecutors(tenantId?: string | null) {
     let query = supabase
-      .from('executors')
-      .select(`
-        *,
-        user:users(*),
-        executor_profiles(*)
-      `);
+      .from('executor_profiles')
+      .select('*, user:users!executor_profiles_user_id_fkey(*)');
+    
+    // Order by user's full_name or email if available, otherwise by id
+    // Note: executor_profiles doesn't have created_at, so we order by user data
 
-    // Filter by executor IDs if tenant admin
-    if (executorIds && executorIds.length > 0) {
-      query = query.in('id', executorIds);
+    // Filter by tenant if provided
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    } else {
+      // For tenant admins, filter by their tenant
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
+        query = query.eq('tenant_id', currentUser.tenant_id);
+      }
     }
-
-    query = query.order('created_at', { ascending: false });
 
     const { data, error } = await query;
 
@@ -50,17 +30,13 @@ export const executorsService = {
       throw error;
     }
     
-    return (data || []) as ExecutorWithProfile[];
+    return (data || []) as ExecutorProfileWithUser[];
   },
 
   async getExecutorById(id: string) {
     const { data, error } = await supabase
-      .from('executors')
-      .select(`
-        *,
-        user:users(*),
-        executor_profiles(*)
-      `)
+      .from('executor_profiles')
+      .select('*, user:users!executor_profiles_user_id_fkey(*)')
       .eq('id', id)
       .maybeSingle();
 
@@ -68,17 +44,13 @@ export const executorsService = {
       console.error('Error fetching executor by ID:', error);
       throw error;
     }
-    return data as ExecutorWithProfile | null;
+    return data as ExecutorProfileWithUser | null;
   },
 
   async getExecutorByUserId(userId: string) {
     const { data, error } = await supabase
-      .from('executors')
-      .select(`
-        *,
-        user:users(*),
-        executor_profiles(*)
-      `)
+      .from('executor_profiles')
+      .select('*, user:users!executor_profiles_user_id_fkey(*)')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -86,149 +58,117 @@ export const executorsService = {
       console.error('Error fetching executor by user ID:', error);
       throw error;
     }
-    return data as ExecutorWithProfile | null;
+    return data as ExecutorProfileWithUser | null;
   },
 
-  async createExecutor(input: CreateExecutorInput) {
-    // Get current user's tenant_id if tenant admin
-    const currentUser = await authService.getCurrentUser();
-    const tenantId = currentUser?.role === 'tenant_admin' ? currentUser.tenant_id : undefined;
-
-    // First create the executor
-    const { data: executorData, error: executorError } = await supabase
-      .from('executors')
-      .insert(input)
-      .select('*, user:users(*)')
+  async createExecutor(input: {
+    tenant_id: string;
+    user_id: string;
+    skills?: any[];
+    max_concurrent_tickets?: number;
+    // Note: current_load is not in the schema, use assigned_tickets_count instead
+    availability_status?: ExecutorAvailability;
+    employee_id?: string;
+    manager_id?: string;
+    full_name?: string;
+  }) {
+    const { data, error } = await supabase
+      .from('executor_profiles')
+      .insert({
+        tenant_id: input.tenant_id,
+        user_id: input.user_id,
+        skills: input.skills || [],
+        max_concurrent_tickets: input.max_concurrent_tickets || 10,
+        availability_status: input.availability_status || 'available',
+        employee_id: input.employee_id || null,
+        manager_id: input.manager_id || null,
+        full_name: input.full_name || null,
+        assigned_tickets_count: 0, // Default value for NOT NULL column
+        open_tickets_count: 0, // Default value for NOT NULL column
+      })
+      .select('*, user:users!executor_profiles_user_id_fkey(*)')
       .single();
 
-    if (executorError) {
-      console.error('Error creating executor:', {
-        input,
-        error: executorError.message,
-        details: executorError.details,
-        hint: executorError.hint,
-        code: executorError.code
+    if (error) {
+      console.error('Error creating executor profile:', {
+        error: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+        input: input
       });
-      throw executorError;
+      throw error;
     }
-
-    // If tenant admin, create executor_profile
-    if (tenantId && executorData) {
-      try {
-        const { data: profileData, error: profileError } = await supabase
-          .from('executor_profiles')
-          .insert({
-            executor_id: executorData.id,
-            tenant_id: tenantId,
-          })
-          .select()
-          .single();
-
-        if (profileError) {
-          console.warn('Warning: Could not create executor_profile:', profileError);
-          // Continue anyway - executor is created
-        }
-
-        return {
-          ...executorData,
-          executor_profiles: profileData ? [profileData] : undefined
-        } as ExecutorWithProfile;
-      } catch (profileErr) {
-        console.warn('Warning: Could not create executor_profile:', profileErr);
-        // Continue anyway
-      }
-    }
-
-    return executorData as ExecutorWithProfile;
+    return data as ExecutorProfileWithUser;
   },
 
-  async updateExecutor(id: string, updates: Partial<Executor>) {
+  async updateExecutor(id: string, updates: Partial<ExecutorProfile>) {
     const { data, error } = await supabase
-      .from('executors')
+      .from('executor_profiles')
       .update(updates)
       .eq('id', id)
-      .select(`
-        *,
-        user:users(*),
-        executor_profiles(*)
-      `)
+      .select('*, user:users!executor_profiles_user_id_fkey(*)')
       .single();
 
     if (error) {
       console.error('Error updating executor:', error);
       throw error;
     }
-    return data as ExecutorWithProfile;
+    return data as ExecutorProfileWithUser;
   },
 
   async deleteExecutor(id: string) {
     const { error } = await supabase
-      .from('executors')
+      .from('executor_profiles')
       .delete()
       .eq('id', id);
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error deleting executor:', error);
+      throw error;
+    }
   },
 
   async updateAvailability(id: string, availability: ExecutorAvailability) {
-    return this.updateExecutor(id, { availability });
+    return this.updateExecutor(id, { availability_status: availability });
   },
 
   async updateCurrentLoad(id: string, currentLoad: number) {
-    return this.updateExecutor(id, { current_load: currentLoad });
+    // Use assigned_tickets_count instead of current_load
+    return this.updateExecutor(id, { assigned_tickets_count: currentLoad } as any);
   },
 
   async incrementLoad(id: string) {
     const executor = await this.getExecutorById(id);
     if (!executor) throw new Error('Executor not found');
 
-    return this.updateCurrentLoad(id, executor.current_load + 1);
+    const currentCount = (executor as any).assigned_tickets_count || 0;
+    return this.updateCurrentLoad(id, currentCount + 1);
   },
 
   async decrementLoad(id: string) {
     const executor = await this.getExecutorById(id);
     if (!executor) throw new Error('Executor not found');
 
-    return this.updateCurrentLoad(id, Math.max(0, executor.current_load - 1));
+    const currentCount = (executor as any).assigned_tickets_count || 0;
+    return this.updateCurrentLoad(id, Math.max(0, currentCount - 1));
   },
 
-  async getAvailableExecutors(skills?: string[]) {
-    const currentUser = await authService.getCurrentUser();
-    
-    // If tenant admin, first get executor IDs from executor_profiles
-    let executorIds: string[] | undefined;
-    if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
-      const { data: profiles, error: profileError } = await supabase
-        .from('executor_profiles')
-        .select('executor_id')
-        .eq('tenant_id', currentUser.tenant_id);
-
-      if (profileError) {
-        console.error('Error fetching executor profiles:', profileError);
-        throw profileError;
-      }
-
-      executorIds = profiles?.map(p => p.executor_id) || [];
-      
-      // If no executor profiles found for this tenant, return empty array
-      if (executorIds.length === 0) {
-        return [];
-      }
-    }
-
+  async getAvailableExecutors(skills?: string[], tenantId?: string | null) {
     let query = supabase
-      .from('executors')
-      .select(`
-        *,
-        user:users(*),
-        executor_profiles(*)
-      `)
-      .eq('availability', 'available')
-      .filter('user.active', 'eq', true);
+      .from('executor_profiles')
+      .select('*, user:users!executor_profiles_user_id_fkey(*)')
+      .eq('availability_status', 'available');
 
-    // Filter by executor IDs if tenant admin
-    if (executorIds && executorIds.length > 0) {
-      query = query.in('id', executorIds);
+    // Filter by tenant if provided
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    } else {
+      // For tenant admins, filter by their tenant
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
+        query = query.eq('tenant_id', currentUser.tenant_id);
+      }
     }
 
     if (skills && skills.length > 0) {
@@ -241,7 +181,7 @@ export const executorsService = {
       console.error('Error fetching available executors:', error);
       throw error;
     }
-    return (data || []) as ExecutorWithProfile[];
+    return (data || []) as ExecutorProfileWithUser[];
   },
 
   async getExecutorStats(id: string) {
@@ -251,9 +191,12 @@ export const executorsService = {
     const { data: tickets, error } = await supabase
       .from('tickets')
       .select('status')
-      .eq('executor_id', id);
+      .eq('executor_profile_id', id);
 
     if (error) throw error;
+
+    const assignedCount = (executor as any).assigned_tickets_count || 0;
+    const maxTickets = executor.max_concurrent_tickets || 10;
 
     const stats = {
       total: tickets?.length || 0,
@@ -261,9 +204,9 @@ export const executorsService = {
       inProgress: tickets?.filter(t => t.status === 'in-progress').length || 0,
       resolved: tickets?.filter(t => t.status === 'resolved').length || 0,
       closed: tickets?.filter(t => t.status === 'closed').length || 0,
-      currentLoad: executor.current_load,
-      maxLoad: executor.max_tickets,
-      loadPercentage: (executor.current_load / executor.max_tickets) * 100,
+      currentLoad: assignedCount,
+      maxLoad: maxTickets,
+      loadPercentage: maxTickets > 0 ? (assignedCount / maxTickets) * 100 : 0,
     };
 
     return stats;
