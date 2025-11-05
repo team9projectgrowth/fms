@@ -6,15 +6,17 @@ export type ExecutorAvailability = 'available' | 'busy' | 'offline';
 export interface User {
   id: string;
   email: string;
-  user_type: UserType;
-  name: string;
+  full_name: string;
+  role: UserType;
   phone?: string;
   department?: string;
-  employee_id?: string;
+  emp_code?: string;
   tenant_id?: string;
-  active: boolean;
+  manager_id?: string;
+  is_active: boolean;
+  telegram_user_id?: string;
+  telegram_chat_id?: string;
   created_at: string;
-  updated_at: string;
 }
 
 export interface Executor {
@@ -38,11 +40,24 @@ export interface ExecutorWithUser extends Executor {
 
 export interface ExecutorProfile {
   id: string;
-  executor_id: string;
-  tenant_id?: string;
-  // Add other profile fields as needed
-  created_at: string;
-  updated_at: string;
+  tenant_id: string;
+  user_id?: string;
+  max_concurrent_tickets?: number;
+  availability_status?: ExecutorAvailability;
+  skills?: any[];
+  employee_id?: string;
+  manager_id?: string;
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  telegram_user_id?: string;
+  category_id?: string;
+  assigned_tickets_count: number;
+  open_tickets_count: number;
+}
+
+export interface ExecutorProfileWithUser extends ExecutorProfile {
+  user: User;
 }
 
 export interface ExecutorWithProfile extends ExecutorWithUser {
@@ -86,16 +101,12 @@ export interface TicketWithRelations extends Ticket {
 
 export interface Category {
   id: string;
+  tenant_id: string;
   name: string;
   description?: string;
   icon?: string;
   color?: string;
-  keywords?: string[];
-  ai_available?: boolean;
-  sort_order?: number;
-  active: boolean;
-  created_at: string;
-  updated_at?: string;
+  is_active: boolean;
 }
 
 export interface Priority {
@@ -116,6 +127,8 @@ export interface CreateUserInput {
   phone?: string;
   department?: string;
   employee_id?: string;
+  telegram_chat_id?: string;
+  telegram_user_id?: string;
   active?: boolean;
 }
 

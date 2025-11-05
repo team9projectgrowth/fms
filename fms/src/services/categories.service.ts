@@ -2,22 +2,34 @@ import { supabase } from '../lib/supabase';
 import type { Category } from '../types/database';
 
 export const categoriesService = {
-  async getAll(): Promise<Category[]> {
-    const { data, error } = await supabase
+  async getAll(tenantId?: string | null): Promise<Category[]> {
+    let query = supabase
       .from('categories')
       .select('*')
-      .order('sort_order', { ascending: true });
+      .order('name', { ascending: true });
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
   },
 
-  async getActive(): Promise<Category[]> {
-    const { data, error } = await supabase
+  async getActive(tenantId?: string | null): Promise<Category[]> {
+    let query = supabase
       .from('categories')
       .select('*')
-      .eq('active', true)
-      .order('sort_order', { ascending: true });
+      .eq('is_active', true)
+      .order('name', { ascending: true });
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     return data || [];
@@ -34,10 +46,17 @@ export const categoriesService = {
     return data;
   },
 
-  async create(category: Omit<Category, 'id' | 'created_at' | 'updated_at'>): Promise<Category> {
+  async create(category: Omit<Category, 'id' | 'created_at' | 'updated_at'>, tenantId: string | null): Promise<Category> {
+    if (!tenantId) {
+      throw new Error('Tenant ID is required to create a category');
+    }
+
     const { data, error } = await supabase
       .from('categories')
-      .insert(category)
+      .insert({
+        ...category,
+        tenant_id: tenantId,
+      })
       .select()
       .single();
 
@@ -80,17 +99,32 @@ export const categoriesService = {
     if (error) throw error;
   },
 
-  async getTicketCount(categoryName: string, days: number = 30): Promise<number> {
+  async getTicketCount(categoryId: string, tenantId?: string | null, days: number = 30): Promise<number> {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const { count, error } = await supabase
+    let query = supabase
       .from('tickets')
       .select('*', { count: 'exact', head: true })
-      .eq('category', categoryName)
+      .eq('category_id', categoryId)
       .gte('created_at', startDate.toISOString());
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { count, error } = await query;
 
     if (error) throw error;
     return count || 0;
+  },
+
+  // Deprecated: Use executorsService.getExecutorSkills() instead
+  // This method is kept for backward compatibility but should not be used
+  async getExecutorSkills(executorUserId: string): Promise<Category[]> {
+    console.warn('categoriesService.getExecutorSkills() is deprecated. Use executorsService.getExecutorSkills() instead.');
+    // This method is no longer valid as executor_skills is now the master table
+    // Use executorsService.getExecutorSkills() instead
+    return [];
   },
 };

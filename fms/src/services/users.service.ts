@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import type { User, UserType, CreateUserInput } from '../types/database';
 
 export const usersService = {
-  async getUsers(userType?: UserType) {
+  async getUsers(userType?: UserType, tenantId?: string | null) {
     let query = supabase
       .from('users')
       .select('*')
@@ -19,6 +19,31 @@ export const usersService = {
       query = query.eq('role', roleMap[userType]);
     }
 
+    // Filter by tenant if provided
+    if (tenantId !== undefined) {
+      if (tenantId === null) {
+        // Super admin - show users with null tenant_id
+        query = query.is('tenant_id', null);
+      } else {
+        // Filter by specific tenant
+        query = query.eq('tenant_id', tenantId);
+      }
+    } else {
+      // For tenant admins, automatically filter by their tenant
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      if (authUser) {
+        const { data: currentUser } = await supabase
+          .from('users')
+          .select('tenant_id, role')
+          .eq('id', authUser.id)
+          .maybeSingle();
+        
+        if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
+          query = query.eq('tenant_id', currentUser.tenant_id);
+        }
+      }
+    }
+
     const { data, error } = await query;
 
     if (error) throw error;
@@ -30,6 +55,8 @@ export const usersService = {
       user_type: user.role,
       employee_id: user.emp_code,
       active: user.is_active,
+      telegram_chat_id: user.telegram_chat_id,
+      telegram_user_id: user.telegram_user_id,
     })) as User[];
   },
 
@@ -51,6 +78,8 @@ export const usersService = {
       user_type: user.role,
       employee_id: user.emp_code,
       active: user.is_active,
+      telegram_chat_id: user.telegram_chat_id,
+      telegram_user_id: user.telegram_user_id,
     } as User;
   },
 
@@ -108,7 +137,35 @@ export const usersService = {
       throw new Error('Tenant ID is required for this user type. Please contact support if you are a tenant admin.');
     }
 
-    // Use signUp for public API (works for tenant admins)
+    // Check if user already exists in users table for this tenant
+    const { data: existingUser, error: checkError } = await supabase
+      .from('users')
+      .select('id, email, tenant_id')
+      .eq('email', email)
+      .eq('tenant_id', tenantId)
+      .maybeSingle();
+
+    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows found"
+      console.error('Error checking for existing user:', checkError);
+      throw new Error('Failed to check for existing user. Please try again.');
+    }
+
+    if (existingUser) {
+      throw new Error('A user with this email already exists in this tenant.');
+    }
+
+    // Check if email exists in users table for any tenant (to detect cross-tenant conflicts)
+    const { data: crossTenantUser } = await supabase
+      .from('users')
+      .select('id, email, tenant_id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (crossTenantUser && crossTenantUser.tenant_id !== tenantId) {
+      throw new Error(`This email is already registered with a different tenant. Please use a different email or contact support.`);
+    }
+
+    // Try to sign up the user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -120,8 +177,23 @@ export const usersService = {
       }
     });
 
-    if (authError) throw authError;
-    if (!authData.user) throw new Error('User creation failed');
+    // Handle "User already registered" error from Supabase Auth
+    if (authError) {
+      if (authError.message?.includes('already registered') || authError.message?.includes('User already registered')) {
+        // Check if there's an orphaned auth user (exists in auth but not in users table)
+        // This requires admin API access, so we'll provide a helpful error message
+        throw new Error(
+          `This email is already registered in Supabase Auth. ` +
+          `If this is the first user for this tenant, the email may have been used previously. ` +
+          `Please use a different email, or contact support to clean up the orphaned auth user.`
+        );
+      }
+      throw authError;
+    }
+
+    if (!authData?.user) {
+      throw new Error('User creation failed');
+    }
 
     // Map user_type to role and handle column name differences
     // Convert empty string emp_code to NULL to avoid unique constraint violations
@@ -141,6 +213,12 @@ export const usersService = {
         emp_code: empCode, // Use NULL instead of empty string
         tenant_id: tenantId,
         is_active: userData.active !== false,
+        telegram_chat_id: (userData as any).telegram_chat_id && (userData as any).telegram_chat_id.trim() !== '' 
+          ? parseFloat((userData as any).telegram_chat_id) || null 
+          : null,
+        telegram_user_id: (userData as any).telegram_user_id && (userData as any).telegram_user_id.trim() !== '' 
+          ? (userData as any).telegram_user_id 
+          : null,
       })
       .select()
       .single();
@@ -188,6 +266,17 @@ export const usersService = {
     }
     if (updates.tenant_id !== undefined) dbUpdates.tenant_id = updates.tenant_id;
     if (updates.active !== undefined) dbUpdates.is_active = updates.active;
+    if ((updates as any).telegram_chat_id !== undefined) {
+      const chatId = (updates as any).telegram_chat_id;
+      dbUpdates.telegram_chat_id = chatId && (typeof chatId === 'string' ? chatId.trim() !== '' : chatId !== null)
+        ? (typeof chatId === 'string' ? parseFloat(chatId) || null : chatId)
+        : null;
+    }
+    if ((updates as any).telegram_user_id !== undefined) {
+      dbUpdates.telegram_user_id = (updates as any).telegram_user_id && (updates as any).telegram_user_id.trim() !== '' 
+        ? (updates as any).telegram_user_id 
+        : null;
+    }
 
     const { data, error } = await supabase
       .from('users')
@@ -206,6 +295,8 @@ export const usersService = {
       user_type: user.role,
       employee_id: user.emp_code,
       active: user.is_active,
+      telegram_chat_id: user.telegram_chat_id,
+      telegram_user_id: user.telegram_user_id,
     } as User;
   },
 

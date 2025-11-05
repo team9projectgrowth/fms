@@ -1,4 +1,4 @@
-import { LayoutDashboard, Ticket, Users, Settings, FileText, ClipboardList, Building, Shield } from 'lucide-react';
+import { LayoutDashboard, Ticket, Users, Settings, FileText, ClipboardList, Building, Shield, UserCog } from 'lucide-react';
 
 interface DashboardSidebarProps {
   userRole: 'admin' | 'executor' | 'complainant' | 'tenant_admin';
@@ -13,6 +13,7 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
     { id: 'complainants', label: 'Complainants', icon: Users },
     { id: 'executors', label: 'Executors', icon: Building },
     { id: 'config-categories', label: 'Categories', icon: FileText, isConfig: true },
+    { id: 'config-executor-skills', label: 'Skills', icon: UserCog, isConfig: true },
     { id: 'config-allocation', label: 'Allocation Rules', icon: ClipboardList, isConfig: true },
     { id: 'config-sla', label: 'SLA Settings', icon: Settings, isConfig: true },
     { id: 'config-priority', label: 'Priority Levels', icon: Settings, isConfig: true },
@@ -26,6 +27,7 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
     { id: 'complainants', label: 'Complainants', icon: Users },
     { id: 'executors', label: 'Executors', icon: Users },
     { id: 'config-categories', label: 'Categories', icon: FileText },
+    { id: 'config-executor-skills', label: 'Skills', icon: UserCog },
     { id: 'config-priority', label: 'Priority Levels', icon: Settings },
     { id: 'config-allocation', label: 'Allocation Rules', icon: ClipboardList },
     { id: 'config-sla', label: 'SLA Settings', icon: Settings },

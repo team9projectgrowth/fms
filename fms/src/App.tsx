@@ -21,8 +21,10 @@ import AdminDashboard from './dashboard/screens/AdminDashboard';
 import AdminAllTickets from './dashboard/screens/AdminAllTickets';
 import UserManagementComplainants from './dashboard/screens/UserManagementComplainants';
 import UserManagementExecutors from './dashboard/screens/UserManagementExecutors';
-import CreateEditUserForm from './dashboard/screens/CreateEditUserForm';
+import CreateEditExecutorForm from './dashboard/screens/CreateEditExecutorForm';
+import CreateEditComplainantForm from './dashboard/screens/CreateEditComplainantForm';
 import ConfigCategories from './dashboard/screens/ConfigCategories';
+import ConfigExecutorSkills from './dashboard/screens/ConfigExecutorSkills';
 import ConfigAllocationRules from './dashboard/screens/ConfigAllocationRules';
 import ConfigSLASettings from './dashboard/screens/ConfigSLASettings';
 import ConfigPriorityLevels from './dashboard/screens/ConfigPriorityLevels';
@@ -37,9 +39,10 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userRole, setUserRole] = useState<'admin' | 'executor' | 'tenant_admin' | null>(null);
   const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
-  const [showUserForm, setShowUserForm] = useState(false);
-  const [editUserId, setEditUserId] = useState<string | null>(null);
-  const [userFormType, setUserFormType] = useState<string>('complainant');
+  const [showExecutorForm, setShowExecutorForm] = useState(false);
+  const [showComplainantForm, setShowComplainantForm] = useState(false);
+  const [editExecutorId, setEditExecutorId] = useState<string | null>(null);
+  const [editComplainantId, setEditComplainantId] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Initialize page from URL hash on mount and handle hash changes
@@ -66,15 +69,42 @@ function App() {
     if (page === 'executor-ticket') {
       setSelectedTicketId(param || null);
     }
+    if (page === 'create-executor') {
+      setShowExecutorForm(true);
+      setEditExecutorId(null);
+      return;
+    }
+    if (page === 'edit-executor') {
+      setShowExecutorForm(true);
+      setEditExecutorId(param || null);
+      return;
+    }
+    if (page === 'create-complainant') {
+      setShowComplainantForm(true);
+      setEditComplainantId(null);
+      return;
+    }
+    if (page === 'edit-complainant') {
+      setShowComplainantForm(true);
+      setEditComplainantId(param || null);
+      return;
+    }
+    // Legacy support for old routes
     if (page === 'create-user') {
-      setShowUserForm(true);
-      setEditUserId(null);
-      setUserFormType(param || 'complainant');
+      if (param === 'executor') {
+        setShowExecutorForm(true);
+        setEditExecutorId(null);
+      } else {
+        setShowComplainantForm(true);
+        setEditComplainantId(null);
+      }
       return;
     }
     if (page === 'edit-user') {
-      setShowUserForm(true);
-      setEditUserId(param || null);
+      // We need to determine if it's an executor or complainant
+      // For now, we'll default to complainant, but this should be handled better
+      setShowComplainantForm(true);
+      setEditComplainantId(param || null);
       return;
     }
     setCurrentPage(page);
@@ -168,6 +198,8 @@ function App() {
         return <UserManagementExecutors key={refreshTrigger} onNavigate={handleNavigate} />;
       case 'config-categories':
         return <ConfigCategories />;
+      case 'config-executor-skills':
+        return <ConfigExecutorSkills />;
       case 'config-allocation':
         return <ConfigAllocationRules />;
       case 'config-sla':
@@ -224,13 +256,24 @@ function App() {
       <DashboardLayout userRole={userRole!} onNavigate={handleNavigate} onLogout={handleLogout}>
         {renderDashboardContent()}
       </DashboardLayout>
-      {showUserForm && (
-        <CreateEditUserForm
-          userId={editUserId || undefined}
-          userType={userFormType}
+      {showExecutorForm && (
+        <CreateEditExecutorForm
+          executorId={editExecutorId || undefined}
           onClose={() => {
-            setShowUserForm(false);
-            setEditUserId(null);
+            setShowExecutorForm(false);
+            setEditExecutorId(null);
+          }}
+          onSuccess={() => {
+            setRefreshTrigger(prev => prev + 1);
+          }}
+        />
+      )}
+      {showComplainantForm && (
+        <CreateEditComplainantForm
+          complainantId={editComplainantId || undefined}
+          onClose={() => {
+            setShowComplainantForm(false);
+            setEditComplainantId(null);
           }}
           onSuccess={() => {
             setRefreshTrigger(prev => prev + 1);

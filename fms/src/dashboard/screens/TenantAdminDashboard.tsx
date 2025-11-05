@@ -66,10 +66,8 @@ export default function TenantAdminDashboard({ onNavigate }: TenantAdminDashboar
       // Load complainants (users with role='complainant')
       let tenantComplainants: User[] = [];
       try {
-        const users = await usersService.getUsers();
-        tenantComplainants = users.filter(
-          u => u.tenant_id === currentUser.tenant_id && u.role === 'complainant'
-        );
+        const users = await usersService.getUsers('complainant', currentUser.tenant_id);
+        tenantComplainants = users;
         setComplainants(tenantComplainants);
       } catch (userError: any) {
         console.warn('Failed to load complainants for dashboard:', userError);

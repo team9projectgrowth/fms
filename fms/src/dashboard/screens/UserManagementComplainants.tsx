@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Download, Upload, Search, Edit, Trash2 } from 'lucide-react';
 import { usersService } from '../../services/users.service';
+import { useTenant } from '../../hooks/useTenant';
 import type { User } from '../../types/database';
 
 interface UserManagementComplainantsProps {
@@ -8,6 +9,7 @@ interface UserManagementComplainantsProps {
 }
 
 export default function UserManagementComplainants({ onNavigate }: UserManagementComplainantsProps) {
+  const { activeTenantId } = useTenant();
   const [searchTerm, setSearchTerm] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
@@ -18,7 +20,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
 
   useEffect(() => {
     loadUsers();
-  }, []);
+  }, [activeTenantId]);
 
   useEffect(() => {
     filterUsers();
@@ -27,7 +29,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const data = await usersService.getUsers('complainant');
+      const data = await usersService.getUsers('complainant', activeTenantId || undefined);
       setUsers(data);
     } catch (err) {
       console.error('Failed to load users:', err);
@@ -127,7 +129,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">COMPLAINANTS</h1>
         <button
-          onClick={() => onNavigate('create-user', 'complainant')}
+          onClick={() => onNavigate('create-complainant')}
           className="px-4 py-2 bg-primary text-white rounded-card hover:bg-primary/90 flex items-center"
         >
           <Plus size={16} className="mr-2" />
@@ -190,7 +192,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
         <div className="bg-white rounded-card shadow-sm p-12 text-center">
           <p className="text-gray-500 text-lg">No complainants found</p>
           <button
-            onClick={() => onNavigate('create-user', 'complainant')}
+            onClick={() => onNavigate('create-complainant')}
             className="mt-4 text-primary hover:underline"
           >
             Create your first complainant
@@ -213,6 +215,8 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Department</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Phone</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Chat ID</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Bot Name</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
               </tr>
@@ -232,6 +236,8 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                   <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.department || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.phone || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{(user as any).telegram_chat_id || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{(user as any).telegram_user_id || '-'}</td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => handleToggleActive(user.id, user.active)}
@@ -244,7 +250,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                   </td>
                   <td className="px-4 py-3">
                     <button
-                      onClick={() => onNavigate('edit-user', user.id)}
+                      onClick={() => onNavigate('edit-complainant', user.id)}
                       className="text-sm text-primary hover:text-primary/80 mr-3 inline-flex items-center"
                     >
                       <Edit size={14} className="mr-1" />
