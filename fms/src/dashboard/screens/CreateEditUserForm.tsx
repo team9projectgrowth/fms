@@ -3,8 +3,9 @@ import { X, Copy, Plus, AlertCircle } from 'lucide-react';
 import { usersService } from '../../services/users.service';
 import { executorsService } from '../../services/executors.service';
 import { categoriesService } from '../../services/categories.service';
+import { designationsService } from '../../services/designations.service';
 import { useTenant } from '../../hooks/useTenant';
-import type { UserType, Category } from '../../types/database';
+import type { UserType, Category, Designation } from '../../types/database';
 
 interface CreateEditUserFormProps {
   userId?: string;
@@ -23,6 +24,7 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
     phone: '',
     department: '',
     employeeId: '',
+    designationId: '',
     categoryId: '',
     skills: [] as string[], // Array of category IDs
     maxTickets: 10,
@@ -38,9 +40,12 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(false);
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [loadingDesignations, setLoadingDesignations] = useState(false);
 
   useEffect(() => {
     loadCategories();
+    loadDesignations();
     if (userId) {
       loadUser();
     }
@@ -58,6 +63,18 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
     }
   };
 
+  const loadDesignations = async () => {
+    try {
+      setLoadingDesignations(true);
+      const data = await designationsService.getActive(activeTenantId || undefined);
+      setDesignations(data);
+    } catch (err) {
+      console.error('Failed to load designations:', err);
+    } finally {
+      setLoadingDesignations(false);
+    }
+  };
+
   const loadUser = async () => {
     try {
       setLoading(true);
@@ -71,6 +88,7 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
           phone: user.phone || '',
           department: user.department || '',
           employeeId: user.employee_id || '',
+          designationId: (user as any).designation_id || '',
           telegramChatId: (user as any).telegram_chat_id?.toString() || '',
           telegramBotName: (user as any).telegram_user_id || '',
           active: user.active
@@ -115,6 +133,7 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
           phone: formData.phone,
           department: formData.department,
           employee_id: formData.employeeId,
+          designation_id: formData.designationId || null,
           telegram_chat_id: formData.telegramChatId || null,
           telegram_user_id: formData.telegramBotName || null,
           active: formData.active,
@@ -147,6 +166,7 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
           phone: formData.phone,
           department: formData.department,
           employee_id: formData.employeeId,
+          designation_id: formData.designationId || undefined,
           telegram_chat_id: formData.telegramChatId || undefined,
           telegram_user_id: formData.telegramBotName || undefined,
           active: formData.active,
@@ -343,15 +363,35 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Employee ID</label>
-            <input
-              type="text"
-              value={formData.employeeId}
-              onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
-              placeholder="EMP-001"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Employee ID</label>
+              <input
+                type="text"
+                value={formData.employeeId}
+                onChange={(e) => setFormData({ ...formData, employeeId: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
+                placeholder="EMP-001"
+              />
+            </div>
+            {formData.type === 'complainant' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Designation</label>
+                <select
+                  value={formData.designationId}
+                  onChange={(e) => setFormData({ ...formData, designationId: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
+                  disabled={loadingDesignations}
+                >
+                  <option value="">Select Designation</option>
+                  {designations.map((designation) => (
+                    <option key={designation.id} value={designation.id}>
+                      {designation.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="border-t border-gray-300 pt-6">

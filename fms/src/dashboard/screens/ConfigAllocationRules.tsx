@@ -1,370 +1,685 @@
-import { useState } from 'react';
-import { Plus, Edit, GripVertical, X, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Edit, Trash2, X, AlertCircle, Power, PowerOff, Eye, GripVertical } from 'lucide-react';
+import { allocationRulesService } from '../../services/allocation-rules.service';
+import { ruleEngineService } from '../../services/rule-engine.service';
+import { useTenant } from '../../hooks/useTenant';
+import type { Rule, RuleWithDetails, RuleTriggerEvent, RuleType, ExecutionStatus } from '../../types/database';
+import RuleConditionBuilder from '../components/RuleConditionBuilder';
+import RuleActionConfig from '../components/RuleActionConfig';
+
+const TRIGGER_EVENTS: { value: RuleTriggerEvent; label: string }[] = [
+  { value: 'on_create', label: 'On Ticket Creation' },
+  { value: 'on_update', label: 'On Ticket Update' },
+  { value: 'on_status_change', label: 'On Status Change' },
+  { value: 'on_manual', label: 'Manual Trigger' },
+];
+
+const RULE_TYPES: { value: RuleType; label: string; description: string }[] = [
+  { value: 'priority', label: 'Priority', description: 'Rules for setting ticket priority' },
+  { value: 'sla', label: 'SLA', description: 'Rules for SLA management and due dates' },
+  { value: 'allocation', label: 'Allocation', description: 'Rules for executor assignment' },
+];
 
 export default function ConfigAllocationRules() {
+  const { activeTenantId } = useTenant();
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [editingRule, setEditingRule] = useState<RuleWithDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedRuleForLogs, setSelectedRuleForLogs] = useState<string | null>(null);
+  const [executionLogs, setExecutionLogs] = useState<any[]>([]);
+  const [showLogsModal, setShowLogsModal] = useState(false);
+
   const [formData, setFormData] = useState({
-    name: '',
-    categories: [] as string[],
-    priorities: [] as string[],
-    types: [] as string[],
-    executors: [] as string[],
-    strategy: '',
-    priorityOrder: 1,
-    active: true
+    rule_name: '',
+    rule_type: 'allocation' as RuleType,
+    priority_order: 999,
+    trigger_event: 'on_create' as RuleTriggerEvent,
+    is_active: true,
+    stop_on_match: false,
+    max_executions: undefined as number | undefined,
   });
 
-  const rules = [
-    {
-      id: '1',
-      name: 'Critical HVAC Issues',
-      conditions: { category: 'HVAC', priority: 'Critical', type: 'Any' },
-      executors: ['Mike Johnson', 'Robert Lee'],
-      strategy: 'Least Loaded',
-      active: true,
-      matched: 12
-    },
-    {
-      id: '2',
-      name: 'IT Support Requests',
-      conditions: { category: 'IT Support', priority: 'Any', type: 'Any' },
-      executors: ['Sarah Wilson', 'Tom Brown'],
-      strategy: 'Round Robin',
-      active: true,
-      matched: 45
+  const [conditions, setConditions] = useState<any[]>([]);
+  const [actions, setActions] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadRules();
+  }, [activeTenantId]);
+
+  useEffect(() => {
+    if (selectedRuleForLogs) {
+      loadExecutionLogs(selectedRuleForLogs);
     }
-  ];
+  }, [selectedRuleForLogs]);
 
-  const categories = ['HVAC', 'Electrical', 'Plumbing', 'Furniture', 'IT Support', 'Cleaning', 'Security'];
-  const priorities = ['Critical', 'High', 'Medium', 'Low'];
-  const types = ['Maintenance', 'Repair', 'Installation', 'Inspection', 'Emergency'];
-  const executorsList = ['Mike Johnson', 'Robert Lee', 'Sarah Wilson', 'Tom Brown', 'Jane Doe'];
-  const strategies = ['Round Robin', 'Least Loaded', 'Skill Based', 'Priority Based'];
+  async function loadRules() {
+    try {
+      setLoading(true);
+      setError(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('New rule:', formData);
-    alert('Rule created successfully!');
-    setShowModal(false);
-    setFormData({
-      name: '',
-      categories: [],
-      priorities: [],
-      types: [],
-      executors: [],
-      strategy: '',
-      priorityOrder: 1,
-      active: true
-    });
-  };
+      if (!activeTenantId) {
+        setError('Please select a tenant to manage allocation rules.');
+        setLoading(false);
+        return;
+      }
 
-  const toggleSelection = (array: string[], item: string) => {
-    if (array.includes(item)) {
-      return array.filter(i => i !== item);
+      const data = await allocationRulesService.getRules(activeTenantId);
+      setRules(data);
+    } catch (err) {
+      console.error('Failed to load rules:', err);
+      setError('Failed to load rules. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadExecutionLogs(ruleId: string) {
+    try {
+      const logs = await ruleEngineService.getExecutionLogs(ruleId, 50);
+      setExecutionLogs(logs);
+    } catch (err) {
+      console.error('Failed to load execution logs:', err);
+    }
+  }
+
+  function openModal(rule?: Rule) {
+    if (rule) {
+      // Load full rule details
+      allocationRulesService.getRuleById(rule.id).then((ruleDetails) => {
+        if (ruleDetails) {
+          setEditingRule(ruleDetails);
+          setFormData({
+            rule_name: ruleDetails.rule_name,
+            rule_type: ruleDetails.rule_type,
+            priority_order: ruleDetails.priority_order,
+            trigger_event: ruleDetails.trigger_event,
+            is_active: ruleDetails.is_active,
+            stop_on_match: ruleDetails.stop_on_match || false,
+            max_executions: ruleDetails.max_executions,
+          });
+          // Add temporary IDs for conditions/actions that don't have them (for UI state management)
+          setConditions((ruleDetails.conditions || []).map((c: any, idx: number) => ({
+            ...c,
+            id: c.id || `condition-${idx}`,
+          })));
+          setActions((ruleDetails.actions || []).map((a: any, idx: number) => ({
+            ...a,
+            id: a.id || `action-${idx}`,
+          })));
+          setShowModal(true);
+        }
+      });
     } else {
-      return [...array, item];
+      setEditingRule(null);
+      setFormData({
+        rule_name: '',
+        rule_type: 'allocation',
+        priority_order: 999,
+        trigger_event: 'on_create',
+        is_active: true,
+        stop_on_match: false,
+        max_executions: undefined,
+      });
+      setConditions([]);
+      setActions([]);
+      setShowModal(true);
     }
-  };
+    setError(null);
+    setSuccessMessage(null);
+  }
+
+  function closeModal() {
+    setShowModal(false);
+    setEditingRule(null);
+    setError(null);
+    setSuccessMessage(null);
+    setConditions([]);
+    setActions([]);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      if (!activeTenantId) {
+        setError('Tenant ID is required. Please select a tenant.');
+        return;
+      }
+
+      if (editingRule) {
+        // Update existing rule
+        await allocationRulesService.updateRule(editingRule.id, {
+          rule_name: formData.rule_name,
+          rule_type: formData.rule_type,
+          priority_order: formData.priority_order,
+          trigger_event: formData.trigger_event,
+          is_active: formData.is_active,
+          stop_on_match: formData.stop_on_match,
+          max_executions: formData.max_executions,
+        });
+
+        // Update conditions and actions
+        // Delete existing conditions
+        await allocationRulesService.deleteAllConditions(editingRule.id);
+        // Delete existing actions
+        await allocationRulesService.deleteAllActions(editingRule.id);
+
+        // Create new conditions
+        for (const condition of conditions) {
+          await allocationRulesService.createCondition({
+            rule_id: editingRule.id,
+            field_path: condition.field_path,
+            operator: condition.operator,
+            value: condition.value,
+            sequence: condition.sequence,
+            group_id: condition.group_id,
+            logical_operator: condition.logical_operator,
+          });
+        }
+
+        // Create new actions
+        for (const action of actions) {
+          await allocationRulesService.createAction({
+            rule_id: editingRule.id,
+            action_type: action.action_type,
+            action_params: action.action_params,
+            step_order: action.step_order,
+            trigger_after_minutes: action.trigger_after_minutes,
+            action_condition: action.action_condition,
+          });
+        }
+
+        setSuccessMessage('Rule updated successfully!');
+        setTimeout(() => {
+          closeModal();
+          loadRules();
+        }, 1500);
+    } else {
+        // Create new rule
+        await allocationRulesService.createRule({
+          tenant_id: activeTenantId,
+          rule_name: formData.rule_name,
+          rule_type: formData.rule_type,
+          priority_order: formData.priority_order,
+          trigger_event: formData.trigger_event,
+          is_active: formData.is_active,
+          stop_on_match: formData.stop_on_match,
+          max_executions: formData.max_executions,
+          conditions: conditions.map((c) => ({
+            field_path: c.field_path,
+            operator: c.operator,
+            value: c.value,
+            sequence: c.sequence,
+            group_id: c.group_id,
+            logical_operator: c.logical_operator,
+          })),
+          actions: actions.map((a) => ({
+            action_type: a.action_type,
+            action_params: a.action_params,
+            step_order: a.step_order,
+            trigger_after_minutes: a.trigger_after_minutes,
+            action_condition: a.action_condition,
+          })),
+        });
+
+        setSuccessMessage('Rule created successfully!');
+        setTimeout(() => {
+          closeModal();
+          loadRules();
+        }, 1500);
+      }
+    } catch (err: any) {
+      console.error('Failed to save rule:', err);
+      setError(err?.message || 'Failed to save rule. Please try again.');
+    }
+  }
+
+  async function handleDelete(ruleId: string) {
+    if (!confirm('Are you sure you want to delete this rule? This action cannot be undone.')) {
+      return;
+    }
+
+    try {
+      await allocationRulesService.deleteRule(ruleId);
+      await loadRules();
+    } catch (err: any) {
+      console.error('Failed to delete rule:', err);
+      alert('Failed to delete rule. Please try again.');
+    }
+  }
+
+  async function handleToggleActive(ruleId: string, currentStatus: boolean) {
+    try {
+      await allocationRulesService.toggleRuleActive(ruleId, !currentStatus);
+      await loadRules();
+    } catch (err: any) {
+      console.error('Failed to toggle rule status:', err);
+      alert('Failed to update rule status. Please try again.');
+    }
+  }
+
+  function getStatusBadge(status: ExecutionStatus) {
+    const styles = {
+      success: 'bg-green-100 text-green-800',
+      failed: 'bg-red-100 text-red-800',
+      skipped: 'bg-gray-100 text-gray-800',
+    };
+    return (
+      <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>
+        {status}
+      </span>
+    );
+  }
+
+  function openLogsModal(ruleId: string) {
+    setSelectedRuleForLogs(ruleId);
+    setShowLogsModal(true);
+  }
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <div className="text-gray-500">Loading rules...</div>
+      </div>
+    );
+  }
 
   return (
+    <div className="p-6">
+      <div className="mb-6 flex justify-between items-center">
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">ALLOCATION RULES</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Allocation Rules</h1>
+          <p className="text-gray-600 mt-1">Configure automatic ticket allocation and prioritization rules</p>
+        </div>
         <button
-          onClick={() => setShowModal(true)}
-          className="px-4 py-2 bg-primary text-white rounded-card hover:bg-primary/90 flex items-center"
+          onClick={() => openModal()}
+          disabled={!activeTenantId}
+          className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
         >
-          <Plus size={16} className="mr-2" />
-          Add Rule
+          <Plus size={20} />
+          Create Rule
         </button>
       </div>
 
-      <div className="space-y-4">
-        {rules.map((rule, index) => (
-          <div key={rule.id} className="bg-white rounded-card shadow-sm p-5">
-            <div className="flex items-start justify-between">
-              <div className="flex items-start flex-1">
-                <button className="text-gray-400 hover:text-gray-600 mr-4 cursor-move mt-1">
-                  <GripVertical size={20} />
-                </button>
-                <div className="flex-1">
-                  <div className="flex items-center mb-3">
-                    <span className="w-8 h-8 bg-primary/10 text-primary rounded-full flex items-center justify-center text-sm font-bold mr-3">
-                      {index + 1}
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800">
+          <AlertCircle size={20} />
+          {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-800">
+          {successMessage}
+                  </div>
+      )}
+
+      {!activeTenantId ? (
+        <div className="p-8 bg-gray-50 rounded-lg text-center">
+          <AlertCircle className="mx-auto mb-4 text-gray-400" size={48} />
+          <p className="text-gray-600">Please select a tenant to manage allocation rules.</p>
+                    </div>
+      ) : rules.length === 0 ? (
+        <div className="p-8 bg-gray-50 rounded-lg text-center">
+          <p className="text-gray-600">No rules found.</p>
+          <p className="text-sm mt-2">Create your first rule to get started.</p>
+                    </div>
+      ) : (
+        <div className="bg-white rounded-lg shadow overflow-hidden">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Priority</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Rule Name</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Type</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Trigger</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Conditions</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {rules.map((rule) => (
+                <tr key={rule.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    <div className="flex items-center gap-2">
+                      <GripVertical size={16} className="text-gray-400" />
+                      {rule.priority_order}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="text-sm font-medium text-gray-900">{rule.rule_name}</div>
+                    {rule.stop_on_match && (
+                      <div className="text-xs text-orange-600 mt-1">Stops on match</div>
+                    )}
+                    {rule.max_executions && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        Max executions: {rule.max_executions}
+                  </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                      {RULE_TYPES.find((t) => t.value === rule.rule_type)?.label || rule.rule_type}
                     </span>
-                    <h3 className="text-lg font-bold text-gray-900">{rule.name}</h3>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-4 mb-3">
-                    <div>
-                      <div className="text-xs text-gray-500 mb-1">Category</div>
-                      <div className="text-sm font-medium text-gray-900">{rule.conditions.category}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500 mb-1">Priority</div>
-                      <div className="text-sm font-medium text-gray-900">{rule.conditions.priority}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-gray-500 mb-1">Type</div>
-                      <div className="text-sm font-medium text-gray-900">{rule.conditions.type}</div>
-                    </div>
-                  </div>
-
-                  <div className="mb-3">
-                    <div className="text-xs text-gray-500 mb-1">Assigned Executors</div>
-                    <div className="flex flex-wrap gap-2">
-                      {rule.executors.map((executor, i) => (
-                        <span key={i} className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded">
-                          {executor}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {TRIGGER_EVENTS.find((e) => e.value === rule.trigger_event)?.label || rule.trigger_event}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {/* Will show count of conditions */}
+                    <button
+                      onClick={() => openModal(rule)}
+                      className="text-primary hover:underline"
+                    >
+                      View conditions
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {/* Will show count of actions */}
+                    <button
+                      onClick={() => openModal(rule)}
+                      className="text-primary hover:underline"
+                    >
+                      View actions
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {rule.is_active ? (
+                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                          Active
                         </span>
-                      ))}
+                      ) : (
+                        <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded-full text-xs font-medium">
+                          Inactive
+                        </span>
+                      )}
                     </div>
-                  </div>
-
-                  <div className="flex items-center space-x-6 text-sm">
-                    <div>
-                      <span className="text-gray-500">Strategy:</span>
-                      <span className="ml-2 font-medium text-gray-900">{rule.strategy}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleToggleActive(rule.id, rule.is_active)}
+                        className="p-1 text-gray-600 hover:text-primary"
+                        title={rule.is_active ? 'Deactivate' : 'Activate'}
+                      >
+                        {rule.is_active ? <PowerOff size={16} /> : <Power size={16} />}
+                      </button>
+                      <button
+                        onClick={() => openLogsModal(rule.id)}
+                        className="p-1 text-gray-600 hover:text-blue-600"
+                        title="View execution logs"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => openModal(rule)}
+                        className="p-1 text-gray-600 hover:text-primary"
+                        title="Edit"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(rule.id)}
+                        className="p-1 text-gray-600 hover:text-red-600"
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Matched:</span>
-                      <span className="ml-2 font-medium text-gray-900">{rule.matched} tickets</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-3 ml-4">
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" defaultChecked={rule.active} className="sr-only peer" />
-                  <div className="w-11 h-6 bg-gray-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-                </label>
-                <button className="p-2 text-gray-700 hover:bg-gray-100 rounded">
-                  <Edit size={16} />
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
       </div>
+      )}
 
+      {/* Create/Edit Rule Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-card shadow-xl max-w-3xl w-full my-8">
-            <div className="sticky top-0 bg-white border-b border-gray-300 px-6 py-4 flex items-center justify-between rounded-t-card">
-              <h2 className="text-xl font-bold text-gray-900">Add Allocation Rule</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-500 hover:text-gray-700">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-900">
+                {editingRule ? 'Edit Rule' : 'Create Rule'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
                 <X size={24} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 mb-2">
-                  Rule Name <span className="text-danger">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
-                  placeholder="e.g., Critical HVAC Issues"
-                />
-              </div>
-
-              <div className="border-t border-gray-300 pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Conditions</h3>
-                <p className="text-sm text-gray-500 mb-4">Select the criteria that tickets must match for this rule to apply</p>
-
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Categories</label>
-                    <div className="flex flex-wrap gap-2">
-                      {categories.map(cat => (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => setFormData({
-                            ...formData,
-                            categories: toggleSelection(formData.categories, cat)
-                          })}
-                          className={`px-3 py-2 rounded-card text-sm font-medium transition-colors ${
-                            formData.categories.includes(cat)
-                              ? 'bg-primary text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formData.categories.length === 0 ? 'Any category' : `${formData.categories.length} selected`}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Priorities</label>
-                    <div className="flex flex-wrap gap-2">
-                      {priorities.map(priority => (
-                        <button
-                          key={priority}
-                          type="button"
-                          onClick={() => setFormData({
-                            ...formData,
-                            priorities: toggleSelection(formData.priorities, priority)
-                          })}
-                          className={`px-3 py-2 rounded-card text-sm font-medium transition-colors ${
-                            formData.priorities.includes(priority)
-                              ? 'bg-primary text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {priority}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formData.priorities.length === 0 ? 'Any priority' : `${formData.priorities.length} selected`}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Types</label>
-                    <div className="flex flex-wrap gap-2">
-                      {types.map(type => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setFormData({
-                            ...formData,
-                            types: toggleSelection(formData.types, type)
-                          })}
-                          className={`px-3 py-2 rounded-card text-sm font-medium transition-colors ${
-                            formData.types.includes(type)
-                              ? 'bg-primary text-white'
-                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {formData.types.length === 0 ? 'Any type' : `${formData.types.length} selected`}
-                    </p>
-                  </div>
+              {error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800">
+                  <AlertCircle size={20} />
+                  {error}
                 </div>
-              </div>
+              )}
 
-              <div className="border-t border-gray-300 pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Executor Pool</h3>
-                <div className="flex flex-wrap gap-2">
-                  {executorsList.map(executor => (
-                    <button
-                      key={executor}
-                      type="button"
-                      onClick={() => setFormData({
-                        ...formData,
-                        executors: toggleSelection(formData.executors, executor)
-                      })}
-                      className={`px-3 py-2 rounded-card text-sm font-medium transition-colors ${
-                        formData.executors.includes(executor)
-                          ? 'bg-primary text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {executor}
-                    </button>
-                  ))}
+              {successMessage && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-800">
+                  {successMessage}
                 </div>
-                {formData.executors.length === 0 && (
-                  <p className="text-xs text-danger mt-2 flex items-center">
-                    <AlertCircle size={12} className="mr-1" />
-                    Select at least one executor
-                  </p>
-                )}
-              </div>
+              )}
 
-              <div className="border-t border-gray-300 pt-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Allocation Strategy</h3>
-                <div className="grid grid-cols-2 gap-4">
+              {/* Basic Rule Information */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Rule Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.rule_name}
+                    onChange={(e) => setFormData({ ...formData, rule_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Rule Type *
+                  </label>
+                  <select
+                    value={formData.rule_type}
+                    onChange={(e) => setFormData({ ...formData, rule_type: e.target.value as RuleType })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    required
+                  >
+                    {RULE_TYPES.map((type) => (
+                      <option key={type.value} value={type.value}>
+                        {type.label} - {type.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Priority Order *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.priority_order}
+                    onChange={(e) => setFormData({ ...formData, priority_order: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Lower number = higher priority</p>
+                </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Strategy <span className="text-danger">*</span>
+                    Trigger Event *
                     </label>
                     <select
-                      required
-                      value={formData.strategy}
-                      onChange={(e) => setFormData({ ...formData, strategy: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
-                    >
-                      <option value="">Select Strategy</option>
-                      {strategies.map(strategy => (
-                        <option key={strategy} value={strategy}>{strategy}</option>
+                    value={formData.trigger_event}
+                    onChange={(e) => setFormData({ ...formData, trigger_event: e.target.value as RuleTriggerEvent })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                  >
+                    {TRIGGER_EVENTS.map((event) => (
+                      <option key={event.value} value={event.value}>
+                        {event.label}
+                      </option>
                       ))}
                     </select>
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Priority Order
+                    Max Executions (Optional)
                     </label>
                     <input
                       type="number"
                       min="1"
-                      value={formData.priorityOrder}
-                      onChange={(e) => setFormData({ ...formData, priorityOrder: parseInt(e.target.value) })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-card focus:outline-none focus:border-primary"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Lower numbers = higher priority</p>
-                  </div>
+                    value={formData.max_executions || ''}
+                    onChange={(e) => setFormData({ ...formData, max_executions: e.target.value ? parseInt(e.target.value) : undefined })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+                    placeholder="Unlimited"
+                  />
                 </div>
               </div>
 
-              <div className="flex items-center pt-4">
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_active}
+                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Active</span>
+                </label>
+
+                <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={formData.active}
-                  onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
-                  className="w-4 h-4 text-primary border-gray-300 rounded mr-2"
+                    checked={formData.stop_on_match}
+                    onChange={(e) => setFormData({ ...formData, stop_on_match: e.target.checked })}
+                    className="rounded border-gray-300"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Stop on Match</span>
+                </label>
+              </div>
+
+              {/* Conditions Section */}
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Conditions</h3>
+                <RuleConditionBuilder
+                  conditions={conditions}
+                  onChange={setConditions}
+                  tenantId={activeTenantId || undefined}
                 />
-                <label className="text-sm font-medium text-gray-700">Active (rule will be applied immediately)</label>
               </div>
 
-              <div className="border-t border-gray-300 pt-6">
-                <div className="bg-info/10 border border-info rounded-card p-4 mb-4">
-                  <h4 className="text-sm font-semibold text-gray-900 mb-2">Test Rule Preview</h4>
-                  <p className="text-xs text-gray-700">
-                    This rule will match tickets with:
-                  </p>
-                  <ul className="text-xs text-gray-700 mt-2 space-y-1 ml-4">
-                    <li>• Categories: {formData.categories.length === 0 ? 'Any' : formData.categories.join(', ')}</li>
-                    <li>• Priorities: {formData.priorities.length === 0 ? 'Any' : formData.priorities.join(', ')}</li>
-                    <li>• Types: {formData.types.length === 0 ? 'Any' : formData.types.join(', ')}</li>
-                    <li>• Will assign to: {formData.executors.length === 0 ? 'No one' : formData.executors.join(', ')}</li>
-                    <li>• Using: {formData.strategy || 'No strategy selected'}</li>
-                  </ul>
-                </div>
+              {/* Actions Section */}
+              <div className="border-t border-gray-200 pt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Actions</h3>
+                <RuleActionConfig
+                  actions={actions}
+                  onChange={setActions}
+                  tenantId={activeTenantId || undefined}
+                />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-300">
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-card hover:bg-gray-50"
+                  onClick={closeModal}
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={formData.executors.length === 0 || !formData.strategy}
-                  className="px-6 py-2 bg-primary text-white rounded-card hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
                 >
-                  Create Rule
+                  {editingRule ? 'Update Rule' : 'Create Rule'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Execution Logs Modal */}
+      {showLogsModal && selectedRuleForLogs && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+              <h2 className="text-xl font-semibold text-gray-900">Execution Logs</h2>
+              <button
+                onClick={() => {
+                  setShowLogsModal(false);
+                  setSelectedRuleForLogs(null);
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {executionLogs.length === 0 ? (
+                <p className="text-gray-500">No execution logs found.</p>
+              ) : (
+                <div className="space-y-4">
+                  {executionLogs.map((log) => (
+                    <div key={log.id} className="border border-gray-200 rounded-lg p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <div>
+                          <div className="font-medium text-gray-900">
+                            Ticket: {log.ticket_id}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {new Date(log.created_at).toLocaleString()}
+                          </div>
+                        </div>
+                        {getStatusBadge(log.execution_status)}
+                      </div>
+                      {log.execution_time_ms && (
+                        <div className="text-sm text-gray-600 mb-2">
+                          Execution time: {log.execution_time_ms}ms
+                        </div>
+                      )}
+                      {log.error_message && (
+                        <div className="text-sm text-red-600 mb-2">
+                          Error: {log.error_message}
+                        </div>
+                      )}
+                      {log.matched_conditions && (
+                        <div className="text-sm text-gray-600">
+                          <strong>Matched Conditions:</strong>
+                          <pre className="mt-1 p-2 bg-gray-50 rounded text-xs overflow-auto">
+                            {JSON.stringify(log.matched_conditions, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                      {log.actions_executed && (
+                        <div className="text-sm text-gray-600 mt-2">
+                          <strong>Actions Executed:</strong>
+                          <pre className="mt-1 p-2 bg-gray-50 rounded text-xs overflow-auto">
+                            {JSON.stringify(log.actions_executed, null, 2)}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

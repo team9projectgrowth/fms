@@ -3,6 +3,36 @@ export type TicketStatus = 'open' | 'in-progress' | 'resolved' | 'closed';
 export type TicketPriority = 'critical' | 'high' | 'medium' | 'low';
 export type ExecutorAvailability = 'available' | 'busy' | 'offline';
 
+// Rule Engine Types
+export type RuleTriggerEvent = 'on_create' | 'on_update' | 'on_manual' | 'on_status_change';
+export type RuleType = 'priority' | 'sla' | 'allocation';
+export type ConditionOperator = 
+  | 'equals' 
+  | 'not_equals' 
+  | 'contains' 
+  | 'not_contains'
+  | 'in' 
+  | 'not_in' 
+  | 'greater_than' 
+  | 'less_than' 
+  | 'greater_than_or_equal' 
+  | 'less_than_or_equal'
+  | 'between' 
+  | 'is_null' 
+  | 'is_not_null' 
+  | 'regex' 
+  | 'starts_with' 
+  | 'ends_with';
+export type ActionType = 
+  | 'assign_executor' 
+  | 'set_priority' 
+  | 'set_due_date' 
+  | 'escalate' 
+  | 'notify' 
+  | 'set_status';
+export type ExecutionStatus = 'success' | 'failed' | 'skipped';
+export type ExecutorAssignmentStrategy = 'skill_match' | 'load_balance' | 'round_robin' | 'specific_executor';
+
 export interface User {
   id: string;
   email: string;
@@ -13,6 +43,7 @@ export interface User {
   emp_code?: string;
   tenant_id?: string;
   manager_id?: string;
+  designation_id?: string;
   is_active: boolean;
   telegram_user_id?: string;
   telegram_chat_id?: string;
@@ -82,11 +113,9 @@ export interface Ticket {
   building?: string;
   floor?: string;
   room?: string;
-  complainant_id?: string;
-  complainant_name?: string;
-  complainant_email?: string;
-  complainant_phone?: string;
+  complainant_id?: string; // References users table - use complainant relation for details
   executor_id?: string;
+  executor_profile_id?: string;
   tenant_id?: string;
   created_at: string;
   updated_at: string;
@@ -97,6 +126,31 @@ export interface Ticket {
 export interface TicketWithRelations extends Ticket {
   complainant?: User;
   executor?: ExecutorWithUser;
+  executor_profile?: ExecutorProfile;
+  last_activity_comment?: string; // Computed from ticket_activities
+  open_days?: number; // Computed: days since creation for open tickets
+  sla_status?: 'on_track' | 'at_risk' | 'breached'; // Computed from due_date
+}
+
+export type TicketActivityType = 
+  | 'reassignment' 
+  | 'priority_change' 
+  | 'sla_change' 
+  | 'admin_comment' 
+  | 'complainant_comment' 
+  | 'executor_update' 
+  | 'status_change';
+
+export interface TicketActivity {
+  id: string;
+  ticket_id: string;
+  tenant_id?: string;
+  activity_type: TicketActivityType;
+  comment?: string;
+  created_by?: string;
+  created_at: string;
+  metadata?: Record<string, any>;
+  created_by_user?: User; // Relation to users
 }
 
 export interface Category {
@@ -109,13 +163,25 @@ export interface Category {
   is_active: boolean;
 }
 
+export interface Designation {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description?: string;
+  active: boolean;
+  created_at: string;
+  updated_at?: string;
+}
+
 export interface Priority {
   id: string;
   name: string;
-  level: number;
+  level?: number;
+  level_order?: number;
   sla_hours?: number;
   color?: string;
-  active: boolean;
+  is_active: boolean;
+  tenant_id?: string;
   created_at: string;
 }
 
@@ -127,6 +193,7 @@ export interface CreateUserInput {
   phone?: string;
   department?: string;
   employee_id?: string;
+  designation_id?: string;
   telegram_chat_id?: string;
   telegram_user_id?: string;
   active?: boolean;
@@ -150,10 +217,7 @@ export interface CreateTicketInput {
   building?: string;
   floor?: string;
   room?: string;
-  complainant_id?: string;
-  complainant_name?: string;
-  complainant_email?: string;
-  complainant_phone?: string;
+  complainant_id?: string; // Required - references users table
   executor_id?: string;
 }
 
@@ -180,6 +244,11 @@ export interface TicketFilters {
   executor_id?: string;
   complainant_id?: string;
   search?: string;
+  tenant_id?: string;
+  created_from?: string; // ISO date string
+  created_to?: string; // ISO date string
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 export interface DatabaseError {
@@ -250,4 +319,138 @@ export interface UpdateTenantInput {
   max_users?: number;
   active?: boolean;
   approved?: boolean;
+}
+
+// ============================================================================
+// Rule Engine Interfaces
+// ============================================================================
+
+export interface Rule {
+  id: string;
+  tenant_id: string;
+  rule_name: string;
+  rule_type: RuleType;
+  priority_order: number;
+  trigger_event: RuleTriggerEvent;
+  is_active: boolean;
+  stop_on_match?: boolean;
+  max_executions?: number;
+  executor_pool?: string[]; // Deprecated - use action config
+  assignment_strategy?: string; // Deprecated - use action config
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuleCondition {
+  id: string;
+  tenant_id: string;
+  rule_id: string;
+  field_path: string; // e.g., 'priority', 'category', 'complainant.department'
+  operator: ConditionOperator;
+  value: string[]; // Array of values for flexibility
+  sequence: number;
+  group_id?: string; // For grouping conditions with AND/OR logic
+  logical_operator?: 'AND' | 'OR'; // For grouping with previous condition
+}
+
+export interface RuleAction {
+  id: string;
+  tenant_id: string;
+  rule_id: string;
+  action_type: ActionType;
+  action_params: Record<string, any>; // JSONB - flexible action configuration
+  step_order: number;
+  trigger_after_minutes?: number; // Time-based trigger (for escalation, reminders)
+  action_condition?: string; // Optional condition for action execution
+}
+
+export interface RuleWithDetails extends Rule {
+  conditions?: RuleCondition[];
+  actions?: RuleAction[];
+}
+
+export interface RuleExecutionLog {
+  id: string;
+  rule_id: string;
+  ticket_id: string;
+  execution_status: ExecutionStatus;
+  matched_conditions?: Record<string, any>;
+  actions_executed?: Record<string, any>[];
+  error_message?: string;
+  execution_time_ms?: number;
+  created_at: string;
+}
+
+// Action Configuration Types
+export interface AssignExecutorActionConfig {
+  strategy: ExecutorAssignmentStrategy;
+  executor_id?: string; // For specific_executor strategy
+  skill_ids?: string[]; // For skill_match strategy
+}
+
+export interface SetPriorityActionConfig {
+  priority: TicketPriority;
+}
+
+export interface SetDueDateActionConfig {
+  calculation: 'hours_from_now' | 'days_from_now' | 'business_hours_from_now';
+  value: number;
+  base_on?: 'priority' | 'category'; // Optional base for calculation
+}
+
+export interface EscalateActionConfig {
+  escalate_to: 'manager' | 'admin';
+  priority_level?: number; // Optional priority increase
+}
+
+export interface NotifyActionConfig {
+  recipients: string[]; // User IDs or email addresses
+  template?: string; // Optional notification template
+}
+
+export interface SetStatusActionConfig {
+  status: TicketStatus;
+}
+
+// Input types for creating/updating rules
+export interface CreateRuleInput {
+  tenant_id: string;
+  rule_name: string;
+  rule_type: RuleType;
+  priority_order: number;
+  trigger_event: RuleTriggerEvent;
+  is_active?: boolean;
+  stop_on_match?: boolean;
+  max_executions?: number;
+  conditions?: Omit<RuleCondition, 'id' | 'tenant_id' | 'rule_id'>[];
+  actions?: Omit<RuleAction, 'id' | 'tenant_id' | 'rule_id'>[];
+}
+
+export interface UpdateRuleInput {
+  rule_name?: string;
+  rule_type?: RuleType;
+  priority_order?: number;
+  trigger_event?: RuleTriggerEvent;
+  is_active?: boolean;
+  stop_on_match?: boolean;
+  max_executions?: number;
+}
+
+export interface CreateRuleConditionInput {
+  rule_id: string;
+  field_path: string;
+  operator: ConditionOperator;
+  value: string[];
+  sequence: number;
+  group_id?: string;
+  logical_operator?: 'AND' | 'OR';
+}
+
+export interface CreateRuleActionInput {
+  rule_id: string;
+  action_type: ActionType;
+  action_params: Record<string, any>;
+  step_order: number;
+  trigger_after_minutes?: number;
+  action_condition?: string;
 }

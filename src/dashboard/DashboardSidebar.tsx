@@ -13,7 +13,7 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
     { id: 'executors', label: 'Executors', icon: Building },
     { id: 'config-categories', label: 'Categories', icon: FileText, isConfig: true },
     { id: 'config-allocation', label: 'Allocation Rules', icon: ClipboardList, isConfig: true },
-    { id: 'config-sla', label: 'SLA Settings', icon: Settings, isConfig: true },
+    // { id: 'config-sla', label: 'SLA Settings', icon: Settings, isConfig: true }, // Deactivated - SLA managed via Priority Levels
     { id: 'config-priority', label: 'Priority Levels', icon: Settings, isConfig: true },
     { id: 'config-hours', label: 'Business Hours', icon: Settings, isConfig: true },
   ];

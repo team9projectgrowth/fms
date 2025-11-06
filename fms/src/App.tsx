@@ -24,12 +24,14 @@ import UserManagementExecutors from './dashboard/screens/UserManagementExecutors
 import CreateEditExecutorForm from './dashboard/screens/CreateEditExecutorForm';
 import CreateEditComplainantForm from './dashboard/screens/CreateEditComplainantForm';
 import ConfigCategories from './dashboard/screens/ConfigCategories';
+import ConfigDesignations from './dashboard/screens/ConfigDesignations';
 import ConfigExecutorSkills from './dashboard/screens/ConfigExecutorSkills';
 import ConfigAllocationRules from './dashboard/screens/ConfigAllocationRules';
 import ConfigSLASettings from './dashboard/screens/ConfigSLASettings';
 import ConfigPriorityLevels from './dashboard/screens/ConfigPriorityLevels';
 import ConfigBusinessHours from './dashboard/screens/ConfigBusinessHours';
 import TenantAdminDashboard from './dashboard/screens/TenantAdminDashboard';
+import TenantTicketDashboard from './dashboard/screens/TenantTicketDashboard';
 import TenantManagement from './dashboard/screens/TenantManagement';
 import SuperAdminTenantManagement from './dashboard/screens/SuperAdminTenantManagement';
 
@@ -198,6 +200,8 @@ function App() {
         return <UserManagementExecutors key={refreshTrigger} onNavigate={handleNavigate} />;
       case 'config-categories':
         return <ConfigCategories />;
+      case 'config-designations':
+        return <ConfigDesignations />;
       case 'config-executor-skills':
         return <ConfigExecutorSkills />;
       case 'config-allocation':
@@ -210,6 +214,8 @@ function App() {
         return <ConfigBusinessHours />;
       case 'tenant-admin-dashboard':
         return <TenantAdminDashboard onNavigate={handleNavigate} />;
+      case 'tenant-ticket-dashboard':
+        return <TenantTicketDashboard />;
       case 'tenant-management':
         return <TenantManagement onNavigate={handleNavigate} />;
       case 'super-admin-tenants':

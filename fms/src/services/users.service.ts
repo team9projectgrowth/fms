@@ -54,6 +54,7 @@ export const usersService = {
       name: user.full_name,
       user_type: user.role,
       employee_id: user.emp_code,
+      designation_id: user.designation_id,
       active: user.is_active,
       telegram_chat_id: user.telegram_chat_id,
       telegram_user_id: user.telegram_user_id,
@@ -77,6 +78,7 @@ export const usersService = {
       name: user.full_name,
       user_type: user.role,
       employee_id: user.emp_code,
+      designation_id: user.designation_id,
       active: user.is_active,
       telegram_chat_id: user.telegram_chat_id,
       telegram_user_id: user.telegram_user_id,
@@ -211,6 +213,9 @@ export const usersService = {
         phone: userData.phone || null,
         department: userData.department || null,
         emp_code: empCode, // Use NULL instead of empty string
+        designation_id: (userData as any).designation_id && (userData as any).designation_id.trim() !== '' 
+          ? (userData as any).designation_id 
+          : null,
         tenant_id: tenantId,
         is_active: userData.active !== false,
         telegram_chat_id: (userData as any).telegram_chat_id && (userData as any).telegram_chat_id.trim() !== '' 
@@ -265,6 +270,11 @@ export const usersService = {
         : null;
     }
     if (updates.tenant_id !== undefined) dbUpdates.tenant_id = updates.tenant_id;
+    if ((updates as any).designation_id !== undefined) {
+      dbUpdates.designation_id = (updates as any).designation_id && (updates as any).designation_id.trim() !== '' 
+        ? (updates as any).designation_id 
+        : null;
+    }
     if (updates.active !== undefined) dbUpdates.is_active = updates.active;
     if ((updates as any).telegram_chat_id !== undefined) {
       const chatId = (updates as any).telegram_chat_id;

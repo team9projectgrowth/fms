@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Plus, Download, Upload, Search, Edit, Trash2 } from 'lucide-react';
 import { usersService } from '../../services/users.service';
+import { designationsService } from '../../services/designations.service';
 import { useTenant } from '../../hooks/useTenant';
-import type { User } from '../../types/database';
+import type { User, Designation } from '../../types/database';
 
 interface UserManagementComplainantsProps {
   onNavigate: (page: string, userId?: string) => void;
@@ -17,10 +18,27 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  const [designations, setDesignations] = useState<Designation[]>([]);
 
   useEffect(() => {
     loadUsers();
+    loadDesignations();
   }, [activeTenantId]);
+
+  const loadDesignations = async () => {
+    try {
+      const data = await designationsService.getAll(activeTenantId || undefined);
+      setDesignations(data);
+    } catch (err) {
+      console.error('Failed to load designations:', err);
+    }
+  };
+
+  const getDesignationName = (designationId?: string) => {
+    if (!designationId) return '-';
+    const designation = designations.find(d => d.id === designationId);
+    return designation?.name || '-';
+  };
 
   useEffect(() => {
     filterUsers();
@@ -214,6 +232,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Name</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Email</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Department</th>
+                <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Designation</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Phone</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Chat ID</th>
                 <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Bot Name</th>
@@ -235,6 +254,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{user.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.email}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.department || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{getDesignationName((user as any).designation_id)}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{user.phone || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{(user as any).telegram_chat_id || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{(user as any).telegram_user_id || '-'}</td>

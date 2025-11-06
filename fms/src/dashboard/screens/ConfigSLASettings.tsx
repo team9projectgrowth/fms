@@ -1,4 +1,4 @@
-import { Save, AlertTriangle } from 'lucide-react';
+import { Save, AlertTriangle, Info } from 'lucide-react';
 
 export default function ConfigSLASettings() {
   const priorities = [
@@ -11,6 +11,19 @@ export default function ConfigSLASettings() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 mb-6">SLA SETTINGS</h1>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-card p-4 mb-6">
+        <div className="flex items-start">
+          <Info size={20} className="text-blue-600 mr-3 mt-0.5 flex-shrink-0" />
+          <div>
+            <div className="text-sm font-semibold text-blue-900 mb-1">Module Inactive</div>
+            <div className="text-sm text-blue-800">
+              The SLA Settings module is currently inactive. SLA is now managed through Priority Levels configuration, where each priority has a simple due time (hours) mapping. 
+              Please navigate to <strong>Priority Levels</strong> to configure SLA settings.
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="bg-white rounded-card shadow-sm p-5 mb-6">
         <h2 className="font-semibold text-gray-900 mb-4">SLA Times by Priority</h2>

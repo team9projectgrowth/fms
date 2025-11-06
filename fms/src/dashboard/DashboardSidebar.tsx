@@ -13,24 +13,26 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
     { id: 'complainants', label: 'Complainants', icon: Users },
     { id: 'executors', label: 'Executors', icon: Building },
     { id: 'config-categories', label: 'Categories', icon: FileText, isConfig: true },
+    { id: 'config-designations', label: 'Designations', icon: UserCog, isConfig: true },
     { id: 'config-executor-skills', label: 'Skills', icon: UserCog, isConfig: true },
     { id: 'config-allocation', label: 'Allocation Rules', icon: ClipboardList, isConfig: true },
-    { id: 'config-sla', label: 'SLA Settings', icon: Settings, isConfig: true },
+    // { id: 'config-sla', label: 'SLA Settings', icon: Settings, isConfig: true }, // Deactivated - SLA managed via Priority Levels
     { id: 'config-priority', label: 'Priority Levels', icon: Settings, isConfig: true },
     { id: 'config-hours', label: 'Business Hours', icon: Settings, isConfig: true },
   ];
 
   const tenantAdminMenu = [
     { id: 'tenant-admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'tenant-ticket-dashboard', label: 'Tickets', icon: Ticket },
     { id: 'tenant-management', label: 'Tenant Settings', icon: Building },
-    { id: 'admin-tickets', label: 'All Tickets', icon: Ticket },
     { id: 'complainants', label: 'Complainants', icon: Users },
     { id: 'executors', label: 'Executors', icon: Users },
     { id: 'config-categories', label: 'Categories', icon: FileText },
+    { id: 'config-designations', label: 'Designations', icon: UserCog },
     { id: 'config-executor-skills', label: 'Skills', icon: UserCog },
     { id: 'config-priority', label: 'Priority Levels', icon: Settings },
     { id: 'config-allocation', label: 'Allocation Rules', icon: ClipboardList },
-    { id: 'config-sla', label: 'SLA Settings', icon: Settings },
+    // { id: 'config-sla', label: 'SLA Settings', icon: Settings }, // Deactivated - SLA managed via Priority Levels
     { id: 'config-hours', label: 'Business Hours', icon: Settings },
   ];
 
