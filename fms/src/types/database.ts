@@ -283,6 +283,7 @@ export interface Tenant {
   approved: boolean;
   approved_at?: string;
   approved_by?: string;
+  automation_webhook_url?: string;
   created_at: string;
   updated_at: string;
 }
@@ -319,6 +320,7 @@ export interface UpdateTenantInput {
   max_users?: number;
   active?: boolean;
   approved?: boolean;
+  automation_webhook_url?: string;
 }
 
 // ============================================================================
@@ -453,4 +455,44 @@ export interface CreateRuleActionInput {
   step_order: number;
   trigger_after_minutes?: number;
   action_condition?: string;
+}
+
+// ============================================================================
+// Telegram/Automation Layer Integration Types
+// ============================================================================
+
+/**
+ * Input from automation layer when creating a ticket via Telegram
+ * Automation layer has already validated user and parsed message
+ */
+export interface TelegramTicketInput {
+  issue: string; // Description of the issue
+  location: string; // Location of the issue
+  category: string; // Category (already determined by automation layer)
+  priority: TicketPriority; // Basic/first level priority (already determined by automation layer)
+  name: string; // User's name
+  designation?: string; // User's designation
+  department?: string; // User's department
+  chat_id: string; // Telegram chat ID
+  tenant_id: string; // Tenant ID
+  type?: string; // Optional ticket type (defaults if not provided)
+  building?: string; // Optional building
+  floor?: string; // Optional floor
+  room?: string; // Optional room
+}
+
+/**
+ * Payload sent to automation layer webhook after ticket processing
+ */
+export interface AutomationWebhookPayload {
+  ticket_id: string;
+  ticket_number: string;
+  issue: string; // Description/title
+  location: string;
+  category: string;
+  priority: TicketPriority; // Final priority after rule engine processing
+  sla?: string; // Due date in ISO format
+  allocated_to?: string; // Executor ID (if allocated)
+  allocated_to_name?: string; // Executor name (if allocated)
+  status: TicketStatus;
 }

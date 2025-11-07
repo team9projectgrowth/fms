@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Building, Mail, Phone, MapPin, User, Save, AlertCircle, CheckCircle } from 'lucide-react';
+import { Building, Mail, Phone, MapPin, User, Save, AlertCircle, CheckCircle, Webhook } from 'lucide-react';
 import { tenantsService } from '../../services/tenants.service';
 import { authService } from '../../services/auth.service';
 import type { Tenant, UpdateTenantInput } from '../../types/database';
@@ -26,6 +26,7 @@ export default function TenantManagement({ onNavigate }: TenantManagementProps) 
     country: '',
     postalCode: '',
     maxUsers: 10,
+    automationWebhookUrl: '',
   });
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export default function TenantManagement({ onNavigate }: TenantManagementProps) 
         country: tenantData.country || '',
         postalCode: tenantData.postal_code || '',
         maxUsers: tenantData.max_users,
+        automationWebhookUrl: tenantData.automation_webhook_url || '',
       });
     } catch (err: any) {
       setError(err.message || 'Failed to load tenant information');
@@ -85,6 +87,15 @@ export default function TenantManagement({ onNavigate }: TenantManagementProps) 
         throw new Error('Tenant ID not found');
       }
 
+      // Validate webhook URL format if provided
+      if (formData.automationWebhookUrl && formData.automationWebhookUrl.trim()) {
+        try {
+          new URL(formData.automationWebhookUrl.trim());
+        } catch {
+          throw new Error('Invalid webhook URL format. Please enter a valid URL (e.g., https://example.com/webhook)');
+        }
+      }
+
       const updates: UpdateTenantInput = {
         name: formData.name,
         email: formData.email,
@@ -96,6 +107,7 @@ export default function TenantManagement({ onNavigate }: TenantManagementProps) 
         country: formData.country || undefined,
         postal_code: formData.postalCode || undefined,
         max_users: formData.maxUsers,
+        automation_webhook_url: formData.automationWebhookUrl.trim() || undefined,
       };
 
       const updatedTenant = await tenantsService.updateTenant(currentUser.tenant_id, updates);
@@ -348,6 +360,35 @@ export default function TenantManagement({ onNavigate }: TenantManagementProps) 
                 placeholder="10"
               />
               <p className="text-xs text-gray-500 mt-1">Maximum number of users allowed for this tenant</p>
+            </div>
+          </div>
+
+          <div className="border-t border-gray-200 pt-6 mt-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Automation Integration</h3>
+            <div className="md:col-span-2">
+              <label htmlFor="automationWebhookUrl" className="block text-sm font-semibold text-gray-700 mb-2">
+                Automation Webhook URL
+              </label>
+              <div className="relative">
+                <Webhook className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                <input
+                  type="url"
+                  id="automationWebhookUrl"
+                  name="automationWebhookUrl"
+                  value={formData.automationWebhookUrl}
+                  onChange={handleChange}
+                  className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-lg focus:border-primary focus:outline-none transition-colors"
+                  placeholder="https://example.com/automation/webhook"
+                />
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Webhook URL for automation layer to receive ticket updates. Leave empty to disable webhook notifications.
+                {formData.automationWebhookUrl && (
+                  <span className="block mt-1 text-green-600">
+                    ✓ Webhook configured
+                  </span>
+                )}
+              </p>
             </div>
           </div>
 

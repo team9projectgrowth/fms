@@ -10,6 +10,7 @@ import type {
   TicketActivityType,
 } from '../types/database';
 import { ruleEngineService } from './rule-engine.service';
+import { automationWebhookService } from './automation-webhook.service';
 
 export const ticketsService = {
   async getTickets(filters?: TicketFilters, page = 1, limit = 10) {
@@ -273,6 +274,19 @@ export const ticketsService = {
     if (data) {
       try {
         await ruleEngineService.processTicket(data.id, 'on_create');
+        
+        // After rule engine processing, send webhook to automation layer
+        // Fetch ticket with relations to get full details
+        const ticketWithRelations = await this.getTicketById(data.id);
+        if (ticketWithRelations) {
+          automationWebhookService.sendTicketToAutomation(
+            ticketWithRelations,
+            ticketTenantId
+          ).catch((error) => {
+            console.error('Error sending webhook after ticket creation:', error);
+            // Don't fail ticket creation if webhook fails
+          });
+        }
       } catch (ruleError) {
         console.error('Error processing rules for ticket creation:', ruleError);
         // Don't fail ticket creation if rule processing fails
@@ -406,6 +420,18 @@ export const ticketsService = {
     if (data) {
       try {
         await ruleEngineService.processTicket(data.id, 'on_status_change');
+        
+        // Send webhook to automation layer when executor is allocated
+        const ticketWithRelations = await this.getTicketById(data.id);
+        if (ticketWithRelations) {
+          automationWebhookService.sendTicketToAutomation(
+            ticketWithRelations,
+            ticketWithRelations.tenant_id || undefined
+          ).catch((error) => {
+            console.error('Error sending webhook after executor assignment:', error);
+            // Don't fail assignment if webhook fails
+          });
+        }
       } catch (ruleError) {
         console.error('Error processing rules for executor assignment:', ruleError);
         // Don't fail assignment if rule processing fails
@@ -456,6 +482,20 @@ export const ticketsService = {
     if (data && statusChanged) {
       try {
         await ruleEngineService.processTicket(data.id, 'on_status_change');
+        
+        // Send webhook to automation layer on status changes (resolved, closed)
+        if (status === 'resolved' || status === 'closed') {
+          const ticketWithRelations = await this.getTicketById(data.id);
+          if (ticketWithRelations) {
+            automationWebhookService.sendTicketToAutomation(
+              ticketWithRelations,
+              ticketWithRelations.tenant_id || undefined
+            ).catch((error) => {
+              console.error('Error sending webhook after status update:', error);
+              // Don't fail status update if webhook fails
+            });
+          }
+        }
       } catch (ruleError) {
         console.error('Error processing rules for status update:', ruleError);
         // Don't fail status update if rule processing fails
