@@ -273,8 +273,18 @@ export const ticketsService = {
     // Process rules for ticket creation (non-blocking)
     if (data) {
       try {
+        console.info('[RuleEngine] Triggering rule processing for ticket creation', {
+          ticketId: data.id,
+          triggerEvent: 'on_create',
+          tenantId: ticketTenantId,
+          category: data.category,
+          priority: data.priority,
+        });
         await ruleEngineService.processTicket(data.id, 'on_create');
-        
+        console.info('[RuleEngine] Completed rule processing for ticket creation', {
+          ticketId: data.id,
+          triggerEvent: 'on_create',
+        });
         // After rule engine processing, send webhook to automation layer
         // Fetch ticket with relations to get full details
         const ticketWithRelations = await this.getTicketById(data.id);
@@ -288,7 +298,11 @@ export const ticketsService = {
           });
         }
       } catch (ruleError) {
-        console.error('Error processing rules for ticket creation:', ruleError);
+        console.error('[RuleEngine] Error during ticket creation processing', {
+          ticketId: data.id,
+          triggerEvent: 'on_create',
+          error: ruleError instanceof Error ? ruleError.message : ruleError,
+        });
         // Don't fail ticket creation if rule processing fails
       }
     }
@@ -384,19 +398,38 @@ export const ticketsService = {
     if (error) throw error;
   },
 
-  async assignExecutor(ticketId: string, executorProfileId: string) {
+  async assignExecutor(ticketId: string, executorProfileId: string, executorUserId?: string) {
     // Get current ticket to detect changes
     const currentTicket = await this.getTicketById(ticketId);
-    const executorChanged = currentTicket && (currentTicket.executor_profile_id !== executorProfileId || currentTicket.executor_id !== executorProfileId);
+    const executorChanged =
+      currentTicket &&
+      (currentTicket.executor_profile_id !== executorProfileId ||
+        (executorUserId && currentTicket.executor_id !== executorUserId));
+
+    console.info('[TicketAssignment] Updating executor', {
+      ticketId,
+      executorProfileId,
+      executorChanged,
+    });
 
     const { data, error } = await supabase
       .from('tickets')
-      .update({ executor_profile_id: executorProfileId, status: 'in-progress' })
+      .update({
+        executor_profile_id: executorProfileId,
+        executor_id: executorUserId ?? null,
+        status: 'in-progress',
+      })
       .eq('id', ticketId)
       .select()
       .single();
 
     if (error) throw error;
+
+    console.info('[TicketAssignment] Executor update result', {
+      ticketId,
+      executorProfileId,
+      status: data?.status,
+    });
 
     // Log reassignment activity if executor changed
     if (data && executorChanged) {
@@ -870,8 +903,17 @@ export const ticketsService = {
     const currentTicket = await this.getTicketById(ticketId);
     if (!currentTicket) throw new Error('Ticket not found');
 
+    // Lookup executor user id for legacy column
+    const { data: executorProfile } = await supabase
+      .from('executor_profiles')
+      .select('user_id')
+      .eq('id', executorProfileId)
+      .maybeSingle();
+
+    const executorUserId = executorProfile?.user_id || undefined;
+
     // Update ticket (assignExecutor will log the reassignment activity)
-    const updatedTicket = await this.assignExecutor(ticketId, executorProfileId);
+    const updatedTicket = await this.assignExecutor(ticketId, executorProfileId, executorUserId);
 
     // Update the reassignment activity comment if provided
     // Note: assignExecutor already logs the reassignment, so we don't need to log again

@@ -75,7 +75,7 @@ export interface ExecutorProfile {
   user_id?: string;
   max_concurrent_tickets?: number;
   availability_status?: ExecutorAvailability;
-  skills?: any[];
+  skills?: string[];
   employee_id?: string;
   manager_id?: string;
   full_name?: string;

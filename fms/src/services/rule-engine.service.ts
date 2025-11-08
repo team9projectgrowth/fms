@@ -4,6 +4,7 @@ import type {
   RuleWithDetails,
   RuleCondition,
   RuleAction,
+  RuleType,
   RuleTriggerEvent,
   Ticket,
   TicketWithRelations,
@@ -21,7 +22,6 @@ import type {
 import { allocationRulesService } from './allocation-rules.service';
 import { ticketsService } from './tickets.service';
 import { executorsService } from './executors.service';
-import { authService } from './auth.service';
 
 /**
  * Rule Engine Service
@@ -33,6 +33,12 @@ export const ruleEngineService = {
    */
   async processTicket(ticketId: string, triggerEvent: RuleTriggerEvent): Promise<void> {
     const startTime = Date.now();
+
+    console.info('[RuleEngine] processTicket:start', {
+      ticketId,
+      triggerEvent,
+      timestamp: new Date().toISOString(),
+    });
 
     // Get ticket with relations
     const ticket = await ticketsService.getTicketById(ticketId);
@@ -46,70 +52,108 @@ export const ruleEngineService = {
     // Get applicable rules for this tenant and trigger event
     const rules = await allocationRulesService.getActiveRules(tenantId, triggerEvent);
 
-    // Sort by priority_order (lower = higher priority)
-    const sortedRules = rules.sort((a, b) => a.priority_order - b.priority_order);
+    // Group rules by rule_type so each type can execute within its own priority sequence
+    const groupedRules = rules.reduce<Map<string, Rule[]>>((map, rule) => {
+      const typeKey = rule.rule_type || 'allocation';
+      if (!map.has(typeKey)) {
+        map.set(typeKey, []);
+      }
+      map.get(typeKey)!.push(rule);
+      return map;
+    }, new Map());
 
-    // Process each rule
-    for (const rule of sortedRules) {
-      try {
-        // Get full rule details with conditions and actions
-        const ruleDetails = await allocationRulesService.getRuleById(rule.id);
-        if (!ruleDetails) continue;
+    // Helper to process a group of rules that belong to the same type
+    const processRuleGroup = async (ruleGroup: Rule[]) => {
+      const sortedGroup = [...ruleGroup].sort((a, b) => a.priority_order - b.priority_order);
 
-        // Check if rule has reached max executions for this ticket
-        if (rule.max_executions) {
-          const executionCount = await this.getRuleExecutionCount(rule.id, ticketId);
-          if (executionCount >= rule.max_executions) {
-            await this.logRuleExecution(rule.id, ticketId, 'skipped', {
-              reason: 'Max executions reached',
-            });
-            continue;
+      for (const rule of sortedGroup) {
+        try {
+          // Get full rule details with conditions and actions
+          const ruleDetails = await allocationRulesService.getRuleById(rule.id);
+          if (!ruleDetails) continue;
+
+          // Check if rule has reached max executions for this ticket
+          if (rule.max_executions) {
+            const executionCount = await this.getRuleExecutionCount(rule.id, ticketId);
+            if (executionCount >= rule.max_executions) {
+              await this.logRuleExecution(rule.id, ticketId, 'skipped', {
+                reason: 'Max executions reached',
+              });
+              continue;
+            }
           }
-        }
 
-        // Evaluate conditions
-        const conditionResult = await this.evaluateRule(ruleDetails, ticket);
+          // Evaluate conditions
+          const conditionResult = await this.evaluateRule(ruleDetails, ticket);
 
-        if (conditionResult.matched) {
-          // Execute actions
-          await this.executeActions(ruleDetails, ticket, conditionResult.matchedConditions);
+          if (conditionResult.matched) {
+            // Execute actions
+            await this.executeActions(ruleDetails, ticket, conditionResult.matchedConditions);
 
-          // Log successful execution
+            // Log successful execution
+            const executionTime = Date.now() - startTime;
+            await this.logRuleExecution(
+              rule.id,
+              ticketId,
+              'success',
+              {
+                matchedConditions: conditionResult.matchedConditions,
+              },
+              executionTime
+            );
+
+            // Stop processing additional rules in this type if stop_on_match is enabled
+            if (rule.stop_on_match) {
+              break;
+            }
+          } else {
+            // Log skipped execution
+            await this.logRuleExecution(rule.id, ticketId, 'skipped', {
+              reason: 'Conditions not matched',
+            });
+          }
+        } catch (error) {
+          // Log failed execution
           const executionTime = Date.now() - startTime;
           await this.logRuleExecution(
             rule.id,
             ticketId,
-            'success',
-            {
-              matchedConditions: conditionResult.matchedConditions,
-            },
-            executionTime
+            'failed',
+            {},
+            executionTime,
+            error instanceof Error ? error.message : 'Unknown error'
           );
-
-          // Stop processing if rule has stop_on_match enabled
-          if (rule.stop_on_match) {
-            break;
-          }
-        } else {
-          // Log skipped execution
-          await this.logRuleExecution(rule.id, ticketId, 'skipped', {
-            reason: 'Conditions not matched',
-          });
+          console.error(`Error processing rule ${rule.id} for ticket ${ticketId}:`, error);
         }
-      } catch (error) {
-        // Log failed execution
-        const executionTime = Date.now() - startTime;
-        await this.logRuleExecution(
-          rule.id,
+      }
+    };
+
+    // Execute groups following a standard order for known rule types
+    const typeExecutionOrder: RuleType[] = ['priority', 'sla', 'allocation'];
+    for (const type of typeExecutionOrder) {
+      const rulesForType = groupedRules.get(type);
+      if (rulesForType?.length) {
+        console.info('[RuleEngine] processTicket:group', {
           ticketId,
-          'failed',
-          {},
-          executionTime,
-          error instanceof Error ? error.message : 'Unknown error'
-        );
-        console.error(`Error processing rule ${rule.id} for ticket ${ticketId}:`, error);
+          triggerEvent,
+          ruleType: type,
+          ruleCount: rulesForType.length,
+        });
+        await processRuleGroup(rulesForType);
+        groupedRules.delete(type);
       }
     }
+
+    // Process any remaining custom rule types
+    for (const remainingRules of groupedRules.values()) {
+      await processRuleGroup(remainingRules);
+    }
+
+    console.info('[RuleEngine] processTicket:complete', {
+      ticketId,
+      triggerEvent,
+      durationMs: Date.now() - startTime,
+    });
   },
 
   /**
@@ -427,77 +471,93 @@ export const ruleEngineService = {
     ticket: Ticket | TicketWithRelations,
     config: AssignExecutorActionConfig
   ): Promise<void> {
+    console.info('[RuleEngine] assignExecutor:start', {
+      ticketId: ticket.id,
+      strategy: config.strategy,
+      hasSkillIds: !!config.skill_ids?.length,
+    });
     let executorId: string | null = null;
+    let executorUserId: string | null = null;
 
-    switch (config.strategy) {
-      case 'specific_executor':
-        if (config.executor_id) {
-          executorId = config.executor_id;
-        }
-        break;
+    const allExecutors = await executorsService.getExecutors(ticket.tenant_id || null);
+    const availableExecutors = allExecutors.filter((exec) => {
+      if (!exec.user?.is_active) return false;
+      if (exec.availability_status !== 'available') return false;
+      return exec.assigned_tickets_count < (exec.max_concurrent_tickets || 10);
+    });
 
-      case 'skill_match':
-        // Find executor with matching skills
-        const ticketTenantId = ticket.tenant_id || null;
-        const executors = await executorsService.getExecutors(ticketTenantId);
-        const matchingExecutors = executors.filter((exec) => {
-          if (!exec.user?.is_active) return false;
-          if (exec.availability_status !== 'available') return false;
-          if (exec.assigned_tickets_count >= (exec.max_concurrent_tickets || 10)) return false;
+    let filteredExecutors = availableExecutors;
 
-          // Check if executor has required skills
-          if (config.skill_ids && config.skill_ids.length > 0) {
-            // This would need to check executor_skills junction table
-            // For now, simplified check
-            return true;
-          }
-          return true;
+    const ticketCategoryId = (ticket as any).category_id || null;
+    const ticketCategoryName = (ticket as any).category
+      ? String((ticket as any).category).toLowerCase()
+      : null;
+
+    if (config.strategy === 'specific_executor' && config.executor_id) {
+      const specific = availableExecutors.find((exec) => exec.id === config.executor_id);
+      if (specific) {
+        filteredExecutors = [specific];
+      } else {
+        filteredExecutors = [];
+      }
+    } else if (config.strategy === 'skill_match') {
+      const requestedCategories = Array.isArray(config.skill_ids)
+        ? config.skill_ids.map((value) => String(value))
+        : [];
+
+      if (requestedCategories.length > 0) {
+        filteredExecutors = availableExecutors.filter((exec) => {
+          const executorCategoryId = exec.category_id || null;
+          const executorCategoryName = exec.category?.name
+            ? String(exec.category.name).toLowerCase()
+            : null;
+
+          return requestedCategories.some((requested) => {
+            const normalized = String(requested).toLowerCase();
+            return (
+              (executorCategoryId && normalized === executorCategoryId) ||
+              (executorCategoryName && normalized === executorCategoryName)
+            );
+          });
         });
-
-        if (matchingExecutors.length > 0) {
-          // Select executor with lowest load
-          const selected = matchingExecutors.sort(
-            (a, b) => a.assigned_tickets_count - b.assigned_tickets_count
-          )[0];
-          executorId = selected.id;
-        }
-        break;
-
-      case 'load_balance':
-        // Find executor with lowest load
-        const allExecutors = await executorsService.getExecutors(ticket.tenant_id || null);
-        const availableExecutors = allExecutors.filter((exec) => {
-          if (!exec.user?.is_active) return false;
-          if (exec.availability_status !== 'available') return false;
-          return exec.assigned_tickets_count < (exec.max_concurrent_tickets || 10);
+      } else if (ticketCategoryId) {
+        filteredExecutors = availableExecutors.filter(
+          (exec) => exec.category_id && exec.category_id === ticketCategoryId,
+        );
+      } else if (ticketCategoryName) {
+        filteredExecutors = availableExecutors.filter((exec) => {
+          if (!exec.category?.name) return false;
+          return String(exec.category.name).toLowerCase() === ticketCategoryName;
         });
+      }
+    }
 
-        if (availableExecutors.length > 0) {
-          const selected = availableExecutors.sort(
-            (a, b) => a.assigned_tickets_count - b.assigned_tickets_count
-          )[0];
-          executorId = selected.id;
-        }
-        break;
+    if (filteredExecutors.length === 0) {
+      filteredExecutors = availableExecutors;
+    }
 
-      case 'round_robin':
-        // Simple round-robin (can be enhanced with state tracking)
-        const roundRobinExecutors = await executorsService.getExecutors(ticket.tenant_id || null);
-        const rrAvailable = roundRobinExecutors.filter((exec) => {
-          if (!exec.user?.is_active) return false;
-          if (exec.availability_status !== 'available') return false;
-          return exec.assigned_tickets_count < (exec.max_concurrent_tickets || 10);
-        });
-
-        if (rrAvailable.length > 0) {
-          // Select first available (can be enhanced with round-robin state)
-          executorId = rrAvailable[0].id;
-        }
-        break;
+    if (filteredExecutors.length > 0) {
+      const sorted = filteredExecutors.sort(
+        (a, b) => a.assigned_tickets_count - b.assigned_tickets_count
+      );
+      const selected = sorted[0];
+      executorId = selected.id;
+      executorUserId = selected.user_id || selected.user?.id || null;
     }
 
     if (executorId) {
-      await ticketsService.assignExecutor(ticket.id, executorId);
+      console.info('[RuleEngine] assignExecutor:selected', {
+        ticketId: ticket.id,
+        strategy: config.strategy,
+        executorId,
+      });
+      await ticketsService.assignExecutor(ticket.id, executorId, executorUserId || undefined);
+    } else {
+      console.warn('[RuleEngine] assignExecutor:no-executor-found', {
+        ticketId: ticket.id,
+        strategy: config.strategy,
+        hasSkillIds: !!config.skill_ids?.length,
+      });
     }
   },
 
@@ -534,8 +594,10 @@ export const ruleEngineService = {
         dueDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Default 1 day
     }
 
+    const dueDateIso = dueDate.toISOString();
     await ticketsService.updateTicket(ticketId, {
-      due_date: dueDate.toISOString(),
+      due_date: dueDateIso,
+      sla_due_date: dueDateIso,
     });
   },
 
@@ -624,7 +686,12 @@ export const ruleEngineService = {
         execution_time_ms: executionTimeMs || null,
       });
     } catch (error) {
-      console.error('Error logging rule execution:', error);
+      console.error('[RuleEngine] Failed to write rule execution log', {
+        ruleId,
+        ticketId,
+        status,
+        error,
+      });
       // Don't throw - logging failures shouldn't break rule execution
     }
   },

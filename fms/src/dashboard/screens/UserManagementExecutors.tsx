@@ -2,6 +2,7 @@ import { Search, Edit, Plus, Trash2, X, ChevronUp, ChevronDown, Filter, ArrowUpD
 import { useState, useEffect, useRef } from 'react';
 import { executorsService } from '../../services/executors.service';
 import { categoriesService } from '../../services/categories.service';
+import { executorSkillsService, type ExecutorSkill } from '../../services/executor-skills.service';
 import { useTenant } from '../../hooks/useTenant';
 import type { ExecutorWithProfile, Category } from '../../types/database';
 
@@ -29,14 +30,16 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showSkillsFilter, setShowSkillsFilter] = useState(false);
-  const [executors, setExecutors] = useState<(ExecutorWithProfile & { ticketCounts?: TicketCounts; executorSkills?: Category[] })[]>([]);
-  const [filteredExecutors, setFilteredExecutors] = useState<(ExecutorWithProfile & { ticketCounts?: TicketCounts; executorSkills?: Category[] })[]>([]);
+  const [executors, setExecutors] = useState<(ExecutorWithProfile & { ticketCounts?: TicketCounts; skillDetails?: ExecutorSkill[] })[]>([]);
+  const [filteredExecutors, setFilteredExecutors] = useState<(ExecutorWithProfile & { ticketCounts?: TicketCounts; skillDetails?: ExecutorSkill[] })[]>([]);
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [skillsCatalog, setSkillsCatalog] = useState<ExecutorSkill[]>([]);
   const skillsFilterRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadCategories();
+    loadSkillsCatalog();
     loadExecutors();
   }, [activeTenantId]);
 
@@ -50,6 +53,15 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
       setCategories(data);
     } catch (err) {
       console.error('Failed to load categories:', err);
+    }
+  };
+
+  const loadSkillsCatalog = async () => {
+    try {
+      const data = await executorSkillsService.getActive(activeTenantId || undefined);
+      setSkillsCatalog(data);
+    } catch (err) {
+      console.error('Failed to load executor skills:', err);
     }
   };
 
@@ -79,16 +91,27 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
       const data = await executorsService.getExecutors(activeTenantId);
       
       console.log('Loaded executors:', data.length, data);
+
+      let skillsReference = skillsCatalog;
+      if (skillsReference.length === 0) {
+        try {
+          skillsReference = await executorSkillsService.getActive(activeTenantId || undefined);
+          setSkillsCatalog(skillsReference);
+        } catch (err) {
+          console.warn('Failed to refresh skills catalog:', err);
+          skillsReference = [];
+        }
+      }
       
-      // Load ticket counts and skills for all executors
+      // Load ticket counts and map skills for all executors
       const executorsWithCounts = await Promise.all(
         data.map(async (executor) => {
           try {
             const stats = await executorsService.getExecutorStats(executor.id);
-            // Load skills from executor_skills table (linked to executor_skill table)
-            const executorSkills = executor.user_id 
-              ? await executorsService.getExecutorSkills(executor.user_id)
-              : [];
+            const skillIds = Array.isArray((executor as any).skills) ? (executor as any).skills : [];
+            const skillDetails = skillIds
+              .map((skillId: string) => skillsReference.find(skill => skill.id === skillId))
+              .filter((skill): skill is ExecutorSkill => Boolean(skill));
             
             return {
               ...executor,
@@ -99,7 +122,7 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
                 resolved: stats.resolved,
                 closed: stats.closed,
               },
-              executorSkills,
+              skillDetails,
             };
           } catch (err) {
             console.warn(`Failed to load data for executor ${executor.id}:`, err);
@@ -112,7 +135,7 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
                 resolved: 0,
                 closed: 0,
               },
-              executorSkills: [],
+              skillDetails: [],
             };
           }
         })
@@ -155,10 +178,8 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
     // Apply skills filter
     if (selectedSkills.length > 0) {
       filtered = filtered.filter(executor => {
-        const executorSkills = executor.executorSkills || [];
-        return selectedSkills.some(skillId => 
-          executorSkills.some((skill: Category) => skill.id === skillId)
-        );
+        const executorSkillIds = Array.isArray((executor as any).skills) ? (executor as any).skills : [];
+        return selectedSkills.some(skillId => executorSkillIds.includes(skillId));
       });
     }
 
@@ -239,11 +260,11 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
     }
   };
 
-  // Get all unique skill category IDs from executors
+  // Get all unique skill IDs from executors
   const allSkillIds = Array.from(
     new Set(executors.flatMap(e => {
-      const skills = e.executorSkills || [];
-      return skills.map((skill: Category) => skill.id);
+      const skills = e.skillDetails || [];
+      return skills.map((skill: ExecutorSkill) => skill.id);
     }))
   );
 
@@ -349,22 +370,29 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
             {showSkillsFilter && (
               <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-card shadow-lg max-h-60 overflow-y-auto">
                 <div className="p-3">
-                  {categories.length > 0 ? (
-                    categories.map(category => (
-                      <label key={category.id} className="flex items-center py-2 hover:bg-gray-50 cursor-pointer">
+                  {skillsCatalog.length > 0 ? (
+                    skillsCatalog.map(skill => (
+                      <label key={skill.id} className="flex items-center py-2 hover:bg-gray-50 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={selectedSkills.includes(category.id)}
+                          checked={selectedSkills.includes(skill.id)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedSkills([...selectedSkills, category.id]);
+                              setSelectedSkills([...selectedSkills, skill.id]);
                             } else {
-                              setSelectedSkills(selectedSkills.filter(id => id !== category.id));
+                              setSelectedSkills(selectedSkills.filter(id => id !== skill.id));
                             }
                           }}
                           className="mr-3 rounded text-primary focus:ring-primary"
                         />
-                        <span className="text-sm text-gray-700">{category.name}</span>
+                        <span className="text-sm text-gray-700">
+                          {skill.name}
+                          {skill.category && (
+                            <span className="ml-2 text-xs text-gray-500">
+                              ({categories.find(c => c.id === skill.category)?.name || 'Uncategorized'})
+                            </span>
+                          )}
+                        </span>
                       </label>
                     ))
                   ) : (
@@ -403,7 +431,7 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
                 </span>
               )}
               {selectedSkills.map(skillId => {
-                const skill = categories.find(c => c.id === skillId);
+                const skill = skillsCatalog.find(s => s.id === skillId);
                 return skill ? (
                   <span key={skillId} className="inline-flex items-center px-3 py-1 bg-primary/10 text-primary rounded-full text-sm">
                     {skill.name}
@@ -586,16 +614,16 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-wrap gap-1 max-w-xs">
-                          {(executor.executorSkills || []).slice(0, 3).map((skill: Category) => (
+                          {(executor.skillDetails || []).slice(0, 3).map((skill: ExecutorSkill) => (
                             <span key={skill.id} className="px-2 py-1 bg-primary/10 text-primary text-xs rounded-full font-medium">
                               {skill.name}
                             </span>
                           ))}
-                          {(!executor.executorSkills || executor.executorSkills.length === 0) && (
+                          {(!executor.skillDetails || executor.skillDetails.length === 0) && (
                             <span className="text-xs text-gray-400">None</span>
                           )}
-                          {executor.executorSkills && executor.executorSkills.length > 3 && (
-                            <span className="text-xs text-gray-500">+{executor.executorSkills.length - 3} more</span>
+                          {executor.skillDetails && executor.skillDetails.length > 3 && (
+                            <span className="text-xs text-gray-500">+{executor.skillDetails.length - 3} more</span>
                           )}
                         </div>
                       </td>

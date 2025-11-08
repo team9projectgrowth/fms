@@ -40,7 +40,6 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
   const [executorSkills, setExecutorSkills] = useState<ExecutorSkill[]>([]);
   const [allExecutorSkills, setAllExecutorSkills] = useState<ExecutorSkill[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
-  const [initialSkills, setInitialSkills] = useState<string[]>([]);
 
   useEffect(() => {
     loadCategories();
@@ -107,13 +106,8 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
           active: user.is_active !== false,
         }));
 
-        // Load skills from executor_skills junction table (which links to executor_skill table)
-        const executorSkillsData = await executorsService.getExecutorSkills(user.id);
-        const skillIds = executorSkillsData.map(skill => skill.id);
-        
-        // Store initial skills for edit mode
-        setInitialSkills(skillIds);
-        
+        const skillIds = Array.isArray((executor as any).skills) ? (executor as any).skills : [];
+
         const categoryId = (executor as any).category_id || '';
         setFormData(prev => ({
           ...prev,

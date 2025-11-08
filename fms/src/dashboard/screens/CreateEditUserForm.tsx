@@ -97,9 +97,7 @@ export default function CreateEditUserForm({ userId, userType, onClose, onSucces
         if (user.user_type === 'executor') {
           const executor = await executorsService.getExecutorByUserId(userId!);
           if (executor) {
-            // Load skills from executor_skills table
-            const executorSkills = await categoriesService.getExecutorSkills(userId!);
-            const skillIds = executorSkills.map(skill => skill.id);
+            const skillIds = Array.isArray((executor as any).skills) ? (executor as any).skills : [];
             
             setFormData(prev => ({
               ...prev,

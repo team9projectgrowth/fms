@@ -18,9 +18,10 @@ export function calculateOpenDays(ticket: Ticket | TicketWithRelations): number 
  * Calculate SLA status from due_date
  */
 export function calculateSLAStatus(ticket: Ticket | TicketWithRelations): 'on_track' | 'at_risk' | 'breached' | null {
-  if (!ticket.due_date) return null;
+  const dueDateValue = ticket.due_date || (ticket as any).sla_due_date;
+  if (!dueDateValue) return null;
 
-  const dueDate = new Date(ticket.due_date);
+  const dueDate = new Date(dueDateValue);
   const now = new Date();
   const hoursRemaining = (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60);
 
@@ -37,9 +38,10 @@ export function calculateSLAStatus(ticket: Ticket | TicketWithRelations): 'on_tr
  * Format SLA for display
  */
 export function formatSLA(ticket: Ticket | TicketWithRelations): string {
-  if (!ticket.due_date) return 'No SLA';
+  const dueDateValue = ticket.due_date || (ticket as any).sla_due_date;
+  if (!dueDateValue) return 'No SLA';
 
-  const dueDate = new Date(ticket.due_date);
+  const dueDate = new Date(dueDateValue);
   const now = new Date();
   const diffTime = dueDate.getTime() - now.getTime();
 

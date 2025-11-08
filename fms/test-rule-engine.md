@@ -2,6 +2,13 @@
 
 ## Quick Test Methods
 
+### Rule Execution Policy Overview
+
+- Rules are grouped by type (`priority`, `sla`, `allocation`). Each type is processed in its own pass.
+- Within a type, rules execute in ascending `priority_order` (1 runs before 2, etc.).
+- `stop_on_match` only halts additional rules in the same type. Other rule types will still run for the ticket.
+- Configure order independently for every type to reflect your tenant's business process.
+
 ### Method 1: Test via Supabase SQL Editor (Direct Database)
 
 1. **Create a test rule directly in database:**

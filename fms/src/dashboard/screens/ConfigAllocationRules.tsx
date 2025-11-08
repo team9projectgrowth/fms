@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Plus, Edit, Trash2, X, AlertCircle, Power, PowerOff, Eye, GripVertical } from 'lucide-react';
 import { allocationRulesService } from '../../services/allocation-rules.service';
 import { ruleEngineService } from '../../services/rule-engine.service';
@@ -31,6 +31,7 @@ export default function ConfigAllocationRules() {
   const [selectedRuleForLogs, setSelectedRuleForLogs] = useState<string | null>(null);
   const [executionLogs, setExecutionLogs] = useState<any[]>([]);
   const [showLogsModal, setShowLogsModal] = useState(false);
+  const [filterRuleType, setFilterRuleType] = useState<'all' | RuleType>('all');
 
   const [formData, setFormData] = useState({
     rule_name: '',
@@ -75,6 +76,12 @@ export default function ConfigAllocationRules() {
       setLoading(false);
     }
   }
+
+  const typedRules = useMemo(() => {
+    return rules
+      .filter((rule) => filterRuleType === 'all' || rule.rule_type === filterRuleType)
+      .sort((a, b) => a.priority_order - b.priority_order);
+  }, [rules, filterRuleType]);
 
   async function loadExecutionLogs(ruleId: string) {
     try {
@@ -296,14 +303,32 @@ export default function ConfigAllocationRules() {
           <h1 className="text-2xl font-bold text-gray-900">Allocation Rules</h1>
           <p className="text-gray-600 mt-1">Configure automatic ticket allocation and prioritization rules</p>
         </div>
-        <button
-          onClick={() => openModal()}
-          disabled={!activeTenantId}
-          className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
-        >
-          <Plus size={20} />
-          Create Rule
-        </button>
+        <div className="flex items-center gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Filter by rule type</label>
+            <select
+              value={filterRuleType}
+              onChange={(e) => setFilterRuleType(e.target.value as 'all' | RuleType)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
+              disabled={!activeTenantId}
+            >
+              <option value="all">All types</option>
+              {RULE_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => openModal()}
+            disabled={!activeTenantId}
+            className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <Plus size={20} />
+            Create Rule
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -319,15 +344,38 @@ export default function ConfigAllocationRules() {
                   </div>
       )}
 
+      {activeTenantId && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900">
+          <p className="font-semibold mb-1">Rule execution policy</p>
+          <p>
+            Rules execute in three passes—Priority, SLA, and Allocation. Within each pass, rules follow their own{' '}
+            <code>priority_order</code>. Selecting “Stop on Match” only prevents additional rules of the same type from
+            running; other rule types will still process.
+          </p>
+        </div>
+      )}
+
       {!activeTenantId ? (
         <div className="p-8 bg-gray-50 rounded-lg text-center">
           <AlertCircle className="mx-auto mb-4 text-gray-400" size={48} />
           <p className="text-gray-600">Please select a tenant to manage allocation rules.</p>
                     </div>
-      ) : rules.length === 0 ? (
+      ) : typedRules.length === 0 ? (
         <div className="p-8 bg-gray-50 rounded-lg text-center">
-          <p className="text-gray-600">No rules found.</p>
-          <p className="text-sm mt-2">Create your first rule to get started.</p>
+          <p className="text-gray-600">
+            {filterRuleType === 'all'
+              ? 'No rules found.'
+              : `No rules found for ${RULE_TYPES.find((t) => t.value === filterRuleType)?.label} type.`}
+          </p>
+          {filterRuleType !== 'all' && (
+            <button
+              onClick={() => setFilterRuleType('all')}
+              className="mt-3 px-4 py-2 border border-primary text-primary rounded-lg hover:bg-primary/10"
+            >
+              Clear filter
+            </button>
+          )}
+          {filterRuleType === 'all' && <p className="text-sm mt-2">Create your first rule to get started.</p>}
                     </div>
       ) : (
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -345,7 +393,7 @@ export default function ConfigAllocationRules() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {rules.map((rule) => (
+              {typedRules.map((rule) => (
                 <tr key={rule.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-700">
                     <div className="flex items-center gap-2">
@@ -356,7 +404,9 @@ export default function ConfigAllocationRules() {
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-gray-900">{rule.rule_name}</div>
                     {rule.stop_on_match && (
-                      <div className="text-xs text-orange-600 mt-1">Stops on match</div>
+                      <div className="text-xs text-orange-600 mt-1">
+                        Stops further rules of this type on match
+                      </div>
                     )}
                     {rule.max_executions && (
                       <div className="text-xs text-gray-500 mt-1">
@@ -517,7 +567,9 @@ export default function ConfigAllocationRules() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-primary"
                     required
                   />
-                  <p className="text-xs text-gray-500 mt-1">Lower number = higher priority</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Lower number = higher priority within the selected rule type
+                  </p>
                 </div>
 
                   <div>
@@ -570,7 +622,7 @@ export default function ConfigAllocationRules() {
                     onChange={(e) => setFormData({ ...formData, stop_on_match: e.target.checked })}
                     className="rounded border-gray-300"
                   />
-                  <span className="text-sm font-medium text-gray-700">Stop on Match</span>
+                  <span className="text-sm font-medium text-gray-700">Stop on Match (within this type)</span>
                 </label>
               </div>
 

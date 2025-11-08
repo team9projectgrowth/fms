@@ -358,9 +358,10 @@ export default function TicketDetailModal({ ticket: initialTicket, onClose, onUp
                   <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getSLABadgeColor(slaStatus)}`}>
                     {formatSLA(ticket)}
                   </span>
-                  {ticket.due_date && (
+                  {(ticket.due_date || (ticket as any).sla_due_date) && (
                     <div className="text-xs text-gray-500 mt-1">
-                      Due: {new Date(ticket.due_date).toLocaleString()}
+                      Due:{' '}
+                      {new Date(ticket.due_date || (ticket as any).sla_due_date).toLocaleString()}
                     </div>
                   )}
                 </div>

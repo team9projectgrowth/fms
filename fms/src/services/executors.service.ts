@@ -154,7 +154,7 @@ export const executorsService = {
       .insert({
         tenant_id: input.tenant_id,
         user_id: input.user_id,
-        skills: [], // Store skills in executor_skills table instead
+        skills: input.skills || [],
         category_id: input.category_id || null,
         max_concurrent_tickets: input.max_concurrent_tickets || 10,
         availability_status: input.availability_status || 'available',
@@ -195,30 +195,15 @@ export const executorsService = {
       throw error;
     }
 
-    // Create executor skill assignments if skills are provided
-    // Note: executor_skills is the master table (tenant_id, category, skill name)
-    // We use junction table (executor_user_skills) to link executors to skills
-    if (input.skills && input.skills.length > 0) {
-      const skillEntries = input.skills.map(skillId => ({
-        executor_user_id: input.user_id,
-        executor_skill_id: skillId,
-      }));
-
-      const { error: skillsError } = await supabase
-        .from('executor_user_skills')
-        .insert(skillEntries);
-
-      if (skillsError) {
-        console.error('Error creating executor skill assignments:', skillsError);
-        // Don't throw - executor profile is already created
-      }
-    }
-
     return data as ExecutorProfileWithUser;
   },
 
   async updateExecutor(id: string, updates: Partial<ExecutorProfile> & { skills?: string[] }) {
-    const { skills, ...profileUpdates } = updates;
+    const { skills, ...restUpdates } = updates;
+    const profileUpdates: Partial<ExecutorProfile> = { ...restUpdates };
+    if (skills !== undefined) {
+      (profileUpdates as any).skills = skills;
+    }
     
     // Update executor profile
     const { data, error } = await supabase
@@ -259,39 +244,8 @@ export const executorsService = {
     }
 
     // Update executor skill assignments if provided
-    // Note: executor_skills is the master table
-    // We use junction table (executor_user_skills) to link executors to skills
-    if (skills !== undefined && data) {
-      const userId = (data as any).user_id || (data as any).user?.id;
-      if (userId) {
-        // Delete existing skill assignments from junction table
-        const { error: deleteError } = await supabase
-          .from('executor_user_skills')
-          .delete()
-          .eq('executor_user_id', userId);
-
-        if (deleteError) {
-          console.warn('Error deleting existing skill assignments:', deleteError);
-        }
-
-        // Insert new skill assignments into junction table
-        if (skills.length > 0) {
-          const skillEntries = skills.map(skillId => ({
-            executor_user_id: userId,
-            executor_skill_id: skillId,
-          }));
-
-          const { error: skillsError } = await supabase
-            .from('executor_user_skills')
-            .insert(skillEntries);
-
-          if (skillsError) {
-            console.error('Error updating executor skills:', skillsError);
-          }
-        }
-      }
-    }
-
+    // Note: executor_skill is the master table
+    // We use junction table (executor_skills) to link executors to skills
     return data as ExecutorProfileWithUser;
   },
 
@@ -437,29 +391,26 @@ export const executorsService = {
     return stats;
   },
 
-  // Get skills assigned to an executor
-  // Note: executor_skills is the master table with tenant_id, category, and skill name
-  // We query the junction table (executor_user_skills) to get assigned skills
+  // Get detailed skills assigned to an executor based on executor_profiles.skills array
   async getExecutorSkills(executorUserId: string): Promise<any[]> {
     try {
-      // Query junction table to get skill IDs assigned to this executor
-      const { data: junctionData, error: junctionError } = await supabase
-        .from('executor_user_skills')
-        .select('executor_skill_id')
-        .eq('executor_user_id', executorUserId);
+      const { data: profile, error: profileError } = await supabase
+        .from('executor_profiles')
+        .select('skills')
+        .eq('user_id', executorUserId)
+        .maybeSingle();
 
-      if (junctionError) {
-        // If junction table doesn't exist, return empty array
-        console.warn('Junction table executor_user_skills may not exist. Error:', junctionError);
+      if (profileError) {
+        console.error('Error fetching executor profile skills:', profileError);
         return [];
       }
 
-      if (!junctionData || junctionData.length === 0) {
+      const skillIds = Array.isArray(profile?.skills) ? profile.skills : [];
+
+      if (!skillIds || skillIds.length === 0) {
         return [];
       }
 
-      // Get the actual skill details from executor_skill master table
-      const skillIds = junctionData.map((item: any) => item.executor_skill_id);
       const { data: skillsData, error: skillsError } = await supabase
         .from('executor_skill')
         .select('*')
