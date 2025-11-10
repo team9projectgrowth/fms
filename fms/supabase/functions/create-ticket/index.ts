@@ -660,9 +660,11 @@ async function executeAssignExecutor(
         tenant_id,
         user_id,
         category_id,
+        skills,
         max_concurrent_tickets,
         availability_status,
         assigned_tickets_count,
+        open_tickets_count,
         user:users!executor_profiles_user_id_fkey(id, is_active),
         category:categories!executor_profiles_category_id_fkey(id, name)
       `,
@@ -690,60 +692,97 @@ async function executeAssignExecutor(
   if (strategy === 'specific_executor' && typeof params.executor_id === 'string') {
     const specific = availableExecutors.find((executor: any) => executor.id === params.executor_id);
     filteredExecutors = specific ? [specific] : [];
-  } else if (strategy === 'skill_match') {
-    const requestedCategories = Array.isArray(params.skill_ids)
-      ? params.skill_ids.map((value) => String(value))
+  } else {
+    const requiredSkillIds = new Set<string>();
+    const requestedSkillIds = Array.isArray(params.skill_ids)
+      ? params.skill_ids.map((value) => String(value).toLowerCase())
       : [];
+    requestedSkillIds.forEach((skill) => requiredSkillIds.add(skill));
 
-    if (requestedCategories.length > 0) {
-      filteredExecutors = availableExecutors.filter((executor: any) => {
-        const executorCategoryId = executor.category_id || null;
-        const executorCategoryName = executor.category?.name
-          ? String(executor.category.name).toLowerCase()
-          : null;
+    if (ticketCategoryId) {
+      requiredSkillIds.add(String(ticketCategoryId).toLowerCase());
+    }
+    if (ticketCategoryName) {
+      requiredSkillIds.add(ticketCategoryName);
+    }
 
-        return requestedCategories.some((requested) => {
-          const normalized = String(requested).toLowerCase();
-          return (
-            (executorCategoryId && normalized === executorCategoryId) ||
-            (executorCategoryName && normalized === executorCategoryName)
-          );
-        });
-      });
-    } else if (ticketCategoryId) {
-      filteredExecutors = availableExecutors.filter(
-        (executor: any) => executor.category_id && executor.category_id === ticketCategoryId,
-      );
-    } else if (ticketCategoryName) {
+    if (requiredSkillIds.size > 0) {
       filteredExecutors = availableExecutors.filter((executor: any) => {
-        if (!executor.category?.name) return false;
-        return String(executor.category.name).toLowerCase() === ticketCategoryName;
+        const executorSkills = Array.isArray(executor.skills)
+          ? executor.skills.map((value: any) => String(value).toLowerCase())
+          : [];
+
+        if (executor.category_id) {
+          executorSkills.push(String(executor.category_id).toLowerCase());
+        }
+
+        if (executor.category?.name) {
+          executorSkills.push(String(executor.category.name).toLowerCase());
+        }
+
+        return executorSkills.some((skill: string) => requiredSkillIds.has(skill));
       });
     }
-  } else if (ticketCategoryId) {
-    filteredExecutors = availableExecutors.filter(
-      (executor: any) => executor.category_id && executor.category_id === ticketCategoryId,
-    );
-  } else if (ticketCategoryName) {
-    filteredExecutors = availableExecutors.filter((executor: any) => {
-      if (!executor.category?.name) return false;
-      return String(executor.category.name).toLowerCase() === ticketCategoryName;
+  }
+
+  if (!filteredExecutors.length) {
+    console.warn('[create-ticket] No executors found with matching skills', {
+      ticketId: ticket.id,
+      strategy,
+      ticketCategoryId,
+      ticketCategoryName,
+      requestedSkillIds: params.skill_ids ?? [],
     });
-  }
-
-  if (!filteredExecutors.length) {
-    filteredExecutors = availableExecutors;
-  }
-
-  if (!filteredExecutors.length) {
-    console.warn('[create-ticket] No executors available for assignment', { ticketId: ticket.id, strategy });
     return;
   }
 
-  const sorted = filteredExecutors.sort(
-    (a: any, b: any) => (a.assigned_tickets_count ?? 0) - (b.assigned_tickets_count ?? 0),
-  );
-  const selected = sorted[0];
+  const executorIds = filteredExecutors
+    .map((executor: any) => executor.id)
+    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
+
+  const loadMap = new Map<string, number>();
+
+  if (executorIds.length) {
+    const { data: activeTickets, error: loadError } = await supabase
+      .from('tickets')
+      .select('executor_profile_id, status')
+      .in('executor_profile_id', executorIds)
+      .in('status', ['open', 'in-progress']);
+
+    if (loadError) {
+      console.error('[create-ticket] Failed to fetch executor ticket load', loadError);
+    } else {
+      for (const ticketRow of activeTickets || []) {
+        const executorId = ticketRow.executor_profile_id;
+        if (executorId) {
+          loadMap.set(executorId, (loadMap.get(executorId) ?? 0) + 1);
+        }
+      }
+    }
+  }
+
+  const ranked = filteredExecutors
+    .map((executor: any) => ({
+      executor,
+      load:
+        loadMap.get(executor.id) ??
+        (typeof executor.assigned_tickets_count === 'number'
+          ? executor.assigned_tickets_count
+          : null) ??
+        (typeof executor.open_tickets_count === 'number'
+          ? executor.open_tickets_count
+          : null) ??
+        0,
+      tieBreaker: Math.random(),
+    }))
+    .sort((a, b) => {
+      const loadDiff = a.load - b.load;
+      if (loadDiff !== 0) {
+        return loadDiff;
+      }
+      return a.tieBreaker - b.tieBreaker;
+    });
+  const selected = ranked[0]?.executor;
 
   if (!selected) {
     console.warn('[create-ticket] Unable to determine executor for ticket', { ticketId: ticket.id, strategy });
@@ -770,6 +809,27 @@ async function executeAssignExecutor(
 
   if (updateError) {
     throw updateError;
+  }
+
+  const newAssignedCount = ((selected.assigned_tickets_count as number | undefined) ?? 0) + 1;
+  const newOpenCount = ((selected.open_tickets_count as number | undefined) ?? 0) + 1;
+
+  const { error: loadUpdateError } = await supabase
+    .from('executor_profiles')
+    .update({
+      assigned_tickets_count: newAssignedCount,
+      open_tickets_count: newOpenCount,
+    })
+    .eq('id', selected.id);
+
+  if (loadUpdateError) {
+    console.error('[create-ticket] Failed to update executor load counters', {
+      executorProfileId: selected.id,
+      error: loadUpdateError,
+    });
+  } else {
+    selected.assigned_tickets_count = newAssignedCount;
+    selected.open_tickets_count = newOpenCount;
   }
 
   ticket.executor_profile_id = selected.id;

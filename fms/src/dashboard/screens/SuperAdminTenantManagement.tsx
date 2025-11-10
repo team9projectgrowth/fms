@@ -1,5 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Building, Search, CheckCircle, XCircle, Power, Edit, Eye, Filter, Ban, X, Save } from 'lucide-react';
+import {
+  Building,
+  Search,
+  CheckCircle,
+  XCircle,
+  Power,
+  Edit,
+  Eye,
+  Filter,
+  Ban,
+  X,
+  Save,
+  UserPlus,
+  User,
+  Mail,
+  Lock,
+} from 'lucide-react';
 import { tenantsService } from '../../services/tenants.service';
 import { authService } from '../../services/auth.service';
 import type { Tenant, UpdateTenantInput } from '../../types/database';
@@ -32,6 +48,15 @@ export default function SuperAdminTenantManagement({ onNavigate }: SuperAdminTen
     subscription_status: 'trial' as 'trial' | 'active' | 'inactive' | 'expired',
     max_users: 10,
   });
+  const [showCreateAdminModal, setShowCreateAdminModal] = useState(false);
+  const [selectedTenantForAdmin, setSelectedTenantForAdmin] = useState<Tenant | null>(null);
+  const [createAdminFormData, setCreateAdminFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+  });
+  const [createAdminError, setCreateAdminError] = useState<string | null>(null);
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
 
   useEffect(() => {
     loadTenants();
@@ -187,6 +212,61 @@ export default function SuperAdminTenantManagement({ onNavigate }: SuperAdminTen
       subscription_status: 'trial',
       max_users: 10,
     });
+  };
+
+  const handleOpenCreateAdminModal = (tenant: Tenant) => {
+    setSelectedTenantForAdmin(tenant);
+    setCreateAdminFormData({
+      name: tenant.contact_person || '',
+      email: tenant.email || '',
+      password: '',
+    });
+    setCreateAdminError(null);
+    setShowCreateAdminModal(true);
+  };
+
+  const handleCloseCreateAdminModal = () => {
+    setShowCreateAdminModal(false);
+    setSelectedTenantForAdmin(null);
+    setCreateAdminFormData({
+      name: '',
+      email: '',
+      password: '',
+    });
+    setCreatingAdmin(false);
+  };
+
+  const handleCreateAdminSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (!selectedTenantForAdmin) {
+      setCreateAdminError('No tenant selected.');
+      return;
+    }
+
+    if (!createAdminFormData.name.trim() || !createAdminFormData.email.trim() || !createAdminFormData.password.trim()) {
+      setCreateAdminError('Please provide name, email, and password.');
+      return;
+    }
+
+    try {
+      setCreatingAdmin(true);
+      setCreateAdminError(null);
+      await tenantsService.createTenantAdminUser(
+        selectedTenantForAdmin.id,
+        createAdminFormData.email.trim(),
+        createAdminFormData.name.trim(),
+        createAdminFormData.password
+      );
+      setSuccess('Tenant admin user created successfully');
+      setShowCreateAdminModal(false);
+      setTimeout(() => setSuccess(null), 3000);
+      await loadTenants();
+    } catch (err: any) {
+      setCreateAdminError(err.message || 'Failed to create tenant admin user');
+    } finally {
+      setCreatingAdmin(false);
+    }
   };
 
   // Filter tenants
@@ -453,6 +533,14 @@ export default function SuperAdminTenantManagement({ onNavigate }: SuperAdminTen
                           <Edit size={20} />
                         </button>
                         <button
+                          onClick={() => handleOpenCreateAdminModal(tenant)}
+                          disabled={processingIds.has(tenant.id) || creatingAdmin}
+                          className="text-indigo-600 hover:text-indigo-900 disabled:opacity-50"
+                          title="Create Tenant Admin"
+                        >
+                          <UserPlus size={20} />
+                        </button>
+                        <button
                           onClick={() => handleDelete(tenant.id)}
                           disabled={processingIds.has(tenant.id)}
                           className="text-red-600 hover:text-red-900 disabled:opacity-50"
@@ -645,6 +733,112 @@ export default function SuperAdminTenantManagement({ onNavigate }: SuperAdminTen
                 Save Changes
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Tenant Admin Modal */}
+      {showCreateAdminModal && selectedTenantForAdmin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
+            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Create Tenant Admin</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  {selectedTenantForAdmin.name}
+                </p>
+              </div>
+              <button
+                onClick={handleCloseCreateAdminModal}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateAdminSubmit} className="p-6 space-y-4">
+              {createAdminError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                  {createAdminError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Name
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="text"
+                    value={createAdminFormData.name}
+                    onChange={(e) => setCreateAdminFormData({ ...createAdminFormData, name: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="Jane Doe"
+                    disabled={creatingAdmin}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="email"
+                    value={createAdminFormData.email}
+                    onChange={(e) => setCreateAdminFormData({ ...createAdminFormData, email: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="admin@example.com"
+                    disabled={creatingAdmin}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                  <input
+                    type="password"
+                    value={createAdminFormData.password}
+                    onChange={(e) => setCreateAdminFormData({ ...createAdminFormData, password: e.target.value })}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="Enter a secure password"
+                    disabled={creatingAdmin}
+                    required
+                    minLength={8}
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Minimum 8 characters. Share securely with the tenant admin.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={handleCloseCreateAdminModal}
+                  className="px-5 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                  disabled={creatingAdmin}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={creatingAdmin}
+                >
+                  {creatingAdmin ? 'Creating...' : 'Create Admin'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
