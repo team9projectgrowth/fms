@@ -1,10 +1,10 @@
 # Telegram Webhook Edge Function
 
-This Supabase Edge Function receives webhook calls from the automation layer (MCP) to create tickets.
+This Supabase Edge Function receives automation payloads (for example, from Make/Integromat) and creates tickets in FMS. It no longer manages executor Telegram interactions—those now live in the dedicated [`executor-ticket-webhook`](../executor-ticket-webhook/README.md) function.
 
 ## Deployment
 
-To deploy this function:
+After logging in with the Supabase CLI and linking your project:
 
 ```bash
 supabase functions deploy telegram-webhook
@@ -12,14 +12,13 @@ supabase functions deploy telegram-webhook
 
 ## Endpoint
 
-After deployment, the endpoint will be:
 ```
 https://<project-ref>.supabase.co/functions/v1/telegram-webhook
 ```
 
 ## Request Format
 
-POST request with JSON body:
+`POST` JSON body:
 
 ```json
 {
@@ -42,30 +41,32 @@ POST request with JSON body:
 ## Response Format
 
 Success (200):
+
 ```json
 {
   "success": true,
   "ticket_id": "uuid",
-  "ticket_number": "TKT-1234"
+  "ticket_number": "FMS-XXX-0000"
 }
 ```
 
-Error (400/404/500):
+Errors (400/403/404/500) return:
+
 ```json
 {
+  "success": false,
   "error": "Error message"
 }
 ```
 
 ## Environment Variables
 
-The function requires:
-- `SUPABASE_URL` - Your Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Service role key for bypassing RLS
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-These are automatically available in Supabase Edge Functions.
+These are provided automatically for Supabase Edge Functions. No Telegram token is needed for this automation-only endpoint.
 
-## Note
+## Related Executor Webhook
 
-This is an optional implementation. The automation layer can also call the `telegramWebhookService.receiveTicketFromAutomation()` function directly if you have an API endpoint set up, or you can create a custom API route that uses the service.
+Executors interacting with the Telegram bot should target the separate [`executor-ticket-webhook`](../executor-ticket-webhook/README.md) endpoint, which lists assigned tickets, handles status changes, and records updates in `ticket_activities`.
 

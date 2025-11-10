@@ -55,6 +55,7 @@ export const automationWebhookService = {
         ticket_id: ticket.id,
         ticket_number: ticket.ticket_number,
         issue: ticket.title, // Use title as issue description
+        description: ticket.description,
         location: ticket.location,
         category: ticket.category,
         priority: ticket.priority, // Final priority after rule engine processing
@@ -62,8 +63,9 @@ export const automationWebhookService = {
       };
 
       // Add SLA (due_date) if available
-      if (ticket.due_date) {
-        payload.sla = ticket.due_date;
+      const slaValue = ticket.due_date || ticket.sla_due_date || (ticket as any).sla_due_date;
+      if (slaValue) {
+        payload.sla = slaValue;
       }
 
       // Add executor information if allocated
@@ -73,8 +75,15 @@ export const automationWebhookService = {
         // Add executor name if available
         if (ticket.executor_profile.user) {
           payload.allocated_to_name = ticket.executor_profile.user.full_name;
+          if (ticket.executor_profile.user.telegram_chat_id) {
+            payload.allocated_to_chat_id = ticket.executor_profile.user.telegram_chat_id;
+          }
         } else if (ticket.executor_profile.full_name) {
           payload.allocated_to_name = ticket.executor_profile.full_name;
+        }
+
+        if (!payload.allocated_to_chat_id && ticket.executor_profile.telegram_chat_id) {
+          payload.allocated_to_chat_id = ticket.executor_profile.telegram_chat_id;
         }
       } else if (ticket.executor_id) {
         // Fallback to executor_id if executor_profile is not loaded

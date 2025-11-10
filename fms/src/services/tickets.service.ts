@@ -316,6 +316,7 @@ export const ticketsService = {
     const statusChanged = currentTicket && input.status && currentTicket.status !== input.status;
     const priorityChanged = currentTicket && input.priority && currentTicket.priority !== input.priority;
     const slaChanged = currentTicket && input.due_date !== undefined && currentTicket.due_date !== input.due_date;
+    const ticketTenantId = currentTicket?.tenant_id;
 
     const { data, error } = await supabase
       .from('tickets')
@@ -384,6 +385,23 @@ export const ticketsService = {
         console.error('Error processing rules for ticket update:', ruleError);
         // Don't fail ticket update if rule processing fails
       }
+
+      const shouldNotifyAutomation = priorityChanged || slaChanged;
+      if (shouldNotifyAutomation) {
+        try {
+          const ticketWithRelations = await this.getTicketById(data.id);
+          if (ticketWithRelations) {
+            const tenantIdForWebhook = ticketWithRelations.tenant_id || ticketTenantId || undefined;
+            automationWebhookService
+              .sendTicketToAutomation(ticketWithRelations, tenantIdForWebhook)
+              .catch((webhookError) => {
+                console.error('Error sending webhook after ticket update:', webhookError);
+              });
+          }
+        } catch (webhookPrepError) {
+          console.error('Error preparing webhook after ticket update:', webhookPrepError);
+        }
+      }
     }
 
     return data as Ticket;
@@ -417,7 +435,6 @@ export const ticketsService = {
       .update({
         executor_profile_id: executorProfileId,
         executor_id: executorUserId ?? null,
-        status: 'in-progress',
       })
       .eq('id', ticketId)
       .select()
@@ -580,6 +597,20 @@ export const ticketsService = {
       } catch (ruleError) {
         console.error('Error processing rules for priority update:', ruleError);
         // Don't fail priority update if rule processing fails
+      }
+
+      try {
+        const ticketWithRelations = await this.getTicketById(data.id);
+        if (ticketWithRelations) {
+          const tenantIdForWebhook = ticketWithRelations.tenant_id || currentTicket?.tenant_id || undefined;
+          automationWebhookService
+            .sendTicketToAutomation(ticketWithRelations, tenantIdForWebhook)
+            .catch((webhookError) => {
+              console.error('Error sending webhook after priority update:', webhookError);
+            });
+        }
+      } catch (webhookPrepError) {
+        console.error('Error preparing webhook after priority update:', webhookPrepError);
       }
     }
 

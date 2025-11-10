@@ -32,6 +32,8 @@ export type ActionType =
   | 'set_status';
 export type ExecutionStatus = 'success' | 'failed' | 'skipped';
 export type ExecutorAssignmentStrategy = 'skill_match' | 'load_balance' | 'round_robin' | 'specific_executor';
+export type ExecutorTicketSessionType = 'update' | 'status_change';
+export type ExecutorTicketSessionState = 'awaiting_input' | 'completed' | 'cancelled' | 'expired';
 
 export interface User {
   id: string;
@@ -82,6 +84,7 @@ export interface ExecutorProfile {
   email?: string;
   phone?: string;
   telegram_user_id?: string;
+  telegram_chat_id?: string;
   category_id?: string;
   assigned_tickets_count: number;
   open_tickets_count: number;
@@ -121,6 +124,7 @@ export interface Ticket {
   updated_at: string;
   resolved_at?: string;
   due_date?: string;
+  sla_due_date?: string;
 }
 
 export interface TicketWithRelations extends Ticket {
@@ -151,6 +155,8 @@ export interface TicketActivity {
   created_at: string;
   metadata?: Record<string, any>;
   created_by_user?: User; // Relation to users
+  session_id?: string; // Links to executor_ticket_sessions when applicable
+  telegram_message_id?: number;
 }
 
 export interface Category {
@@ -488,11 +494,29 @@ export interface AutomationWebhookPayload {
   ticket_id: string;
   ticket_number: string;
   issue: string; // Description/title
+  description?: string;
   location: string;
   category: string;
   priority: TicketPriority; // Final priority after rule engine processing
   sla?: string; // Due date in ISO format
   allocated_to?: string; // Executor ID (if allocated)
   allocated_to_name?: string; // Executor name (if allocated)
+  allocated_to_chat_id?: string; // Executor chat ID (if available)
   status: TicketStatus;
+}
+
+export interface ExecutorTicketSession {
+  id: string;
+  ticket_id: string;
+  executor_profile_id?: string | null;
+  executor_user_id?: string | null;
+  telegram_chat_id: string;
+  telegram_message_id?: number | null;
+  prompt_message_id?: number | null;
+  session_type: ExecutorTicketSessionType;
+  state: ExecutorTicketSessionState;
+  expires_at?: string | null;
+  metadata?: Record<string, any> | null;
+  created_at: string;
+  updated_at: string;
 }

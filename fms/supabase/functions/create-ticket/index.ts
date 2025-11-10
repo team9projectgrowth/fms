@@ -81,17 +81,27 @@ interface RpcResponse {
 interface TicketRecord {
   id: string;
   tenant_id: string | null;
+  ticket_number?: string | null;
+  title?: string | null;
+  description?: string | null;
   category: string;
   priority: string;
   status: string;
   type: string;
   location: string;
   due_date?: string | null;
+  sla_due_date?: string | null;
   complainant_id?: string | null;
   executor_profile_id?: string | null;
   executor_id?: string | null;
   created_at?: string;
   updated_at?: string;
+  complainant?: {
+    id: string;
+    full_name?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -219,11 +229,59 @@ serve(async (req) => {
       );
     }
 
+    let detailedTicket: TicketRecord | null = null;
+    try {
+      detailedTicket = await fetchTicket(supabase, rpcData.ticket_id);
+    } catch (fetchError) {
+      console.error('[create-ticket] Failed to fetch ticket for response payload', fetchError);
+    }
+
+    const formattedTicket = detailedTicket
+      ? {
+          ...((): Record<string, unknown> => {
+            const executorProfile = (detailedTicket as any)?.executor_profile ?? null;
+            const executorUser = executorProfile?.user ?? null;
+            const complainant = (detailedTicket as any)?.complainant ?? null;
+            const slaValue =
+              detailedTicket?.due_date ??
+              detailedTicket?.sla_due_date ??
+              (detailedTicket as any)?.sla_due_date ??
+              null;
+            return {
+              sla: slaValue,
+              allocated_to:
+                detailedTicket.executor_profile_id ??
+                detailedTicket.executor_id ??
+                executorProfile?.id ??
+                null,
+              allocated_to_name: executorUser?.full_name ?? executorProfile?.full_name ?? null,
+              allocated_to_chat_id:
+                executorUser?.telegram_chat_id ?? executorProfile?.telegram_chat_id ?? null,
+              complainant_name: complainant?.full_name ?? null,
+              complainant_email: complainant?.email ?? null,
+              complainant_phone: complainant?.phone ?? null,
+            };
+          })(),
+          ticket_id: detailedTicket.id,
+          ticket_number: detailedTicket.ticket_number ?? rpcData.ticket_number ?? null,
+          title: detailedTicket.title ?? null,
+          description: detailedTicket.description ?? detailedTicket.title ?? null,
+          category: detailedTicket.category,
+          status: detailedTicket.status,
+          priority: detailedTicket.priority,
+          created_at: detailedTicket.created_at ?? null,
+          updated_at: detailedTicket.updated_at ?? null,
+          complainant_id: detailedTicket.complainant_id ?? null,
+          tenant_id: detailedTicket.tenant_id ?? null,
+        }
+      : null;
+
     return new Response(
       JSON.stringify({
         success: true,
         ticket_id: rpcData.ticket_id,
         ticket_number: rpcData.ticket_number,
+        ticket: formattedTicket,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 },
     );
@@ -803,7 +861,6 @@ async function executeAssignExecutor(
     .update({
       executor_profile_id: selected.id,
       executor_id: selected.user_id ?? null,
-      status: 'in-progress',
     })
     .eq('id', ticket.id);
 
@@ -834,7 +891,6 @@ async function executeAssignExecutor(
 
   ticket.executor_profile_id = selected.id;
   ticket.executor_id = selected.user_id ?? null;
-  ticket.status = 'in-progress';
 }
 
 async function executeSetPriority(
