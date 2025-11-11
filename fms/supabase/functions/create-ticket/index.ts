@@ -234,17 +234,16 @@ serve(async (req) => {
 
         if (messageUpdateError) {
           console.error('[create-ticket] Failed to link telegram message to ticket', messageUpdateError);
-        } else {
-          const { error: cleanupError } = await supabase
-            .from('telegram_messages')
-            .delete()
-            .eq('chat_id', chatIdFilter)
-            .is('ticket_id', null);
-
-          if (cleanupError) {
-            console.error('[create-ticket] Failed to prune pre-ticket telegram messages', cleanupError);
-          }
         }
+      }
+
+      const { error: cleanupError } = await supabase
+        .from('telegram_messages')
+        .delete()
+        .eq('chat_id', chatIdFilter);
+
+      if (cleanupError) {
+        console.error('[create-ticket] Failed to prune telegram messages after ticket creation', cleanupError);
       }
     } catch (messageLinkError) {
       console.error('[create-ticket] Unexpected error linking telegram message', messageLinkError);
