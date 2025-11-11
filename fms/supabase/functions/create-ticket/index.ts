@@ -209,6 +209,47 @@ serve(async (req) => {
       );
     }
 
+    // Link the most recent complainant Telegram message with the new ticket
+    try {
+      const chatIdFilter = String(body.chatId);
+      const { data: latestMessage, error: messageLookupError } = await supabase
+        .from('telegram_messages')
+        .select('id, ticket_id')
+        .eq('chat_id', chatIdFilter)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (messageLookupError) {
+        console.error('[create-ticket] Failed to lookup latest telegram message', messageLookupError);
+      } else if (latestMessage?.id) {
+        const { error: messageUpdateError } = await supabase
+          .from('telegram_messages')
+          .update({
+            ticket_id: rpcData.ticket_id,
+            tenant_id: body.tenantId,
+            message_seq: 1,
+          })
+          .eq('id', latestMessage.id);
+
+        if (messageUpdateError) {
+          console.error('[create-ticket] Failed to link telegram message to ticket', messageUpdateError);
+        } else {
+          const { error: cleanupError } = await supabase
+            .from('telegram_messages')
+            .delete()
+            .eq('chat_id', chatIdFilter)
+            .is('ticket_id', null);
+
+          if (cleanupError) {
+            console.error('[create-ticket] Failed to prune pre-ticket telegram messages', cleanupError);
+          }
+        }
+      }
+    } catch (messageLinkError) {
+      console.error('[create-ticket] Unexpected error linking telegram message', messageLinkError);
+    }
+
     // Ensure category_id is aligned with category name
     if (body.category) {
       await upsertTicketCategoryId(supabase, rpcData.ticket_id, body.tenantId, body.category);
@@ -733,22 +774,19 @@ async function executeAssignExecutor(
     throw error;
   }
 
-  const availableExecutors = (executorsData || []).filter((executor: any) => {
+  const statusEligibleExecutors = (executorsData || []).filter((executor: any) => {
     if (!executor.user?.is_active) return false;
     if (executor.availability_status !== 'available') return false;
-
-    const max = executor.max_concurrent_tickets ?? 10;
-    const assigned = executor.assigned_tickets_count ?? 0;
-    return assigned < max;
+    return true;
   });
 
-  let filteredExecutors = availableExecutors;
+  let filteredExecutors = statusEligibleExecutors;
 
   const ticketCategoryId = (ticket as any).category_id || null;
   const ticketCategoryName = ticket.category ? String(ticket.category).toLowerCase() : null;
 
   if (strategy === 'specific_executor' && typeof params.executor_id === 'string') {
-    const specific = availableExecutors.find((executor: any) => executor.id === params.executor_id);
+    const specific = statusEligibleExecutors.find((executor: any) => executor.id === params.executor_id);
     filteredExecutors = specific ? [specific] : [];
   } else {
     const requiredSkillIds = new Set<string>();
@@ -765,7 +803,7 @@ async function executeAssignExecutor(
     }
 
     if (requiredSkillIds.size > 0) {
-      filteredExecutors = availableExecutors.filter((executor: any) => {
+      filteredExecutors = statusEligibleExecutors.filter((executor: any) => {
         const executorSkills = Array.isArray(executor.skills)
           ? executor.skills.map((value: any) => String(value).toLowerCase())
           : [];
@@ -780,6 +818,10 @@ async function executeAssignExecutor(
 
         return executorSkills.some((skill: string) => requiredSkillIds.has(skill));
       });
+
+      if (!filteredExecutors.length) {
+        filteredExecutors = statusEligibleExecutors;
+      }
     }
   }
 
@@ -791,20 +833,23 @@ async function executeAssignExecutor(
       ticketCategoryName,
       requestedSkillIds: params.skill_ids ?? [],
     });
-    return;
+    filteredExecutors = statusEligibleExecutors;
   }
 
-  const executorIds = filteredExecutors
+  const executorIdsForLoad = statusEligibleExecutors
     .map((executor: any) => executor.id)
     .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
 
   const loadMap = new Map<string, number>();
+  for (const executorId of executorIdsForLoad) {
+    loadMap.set(executorId, 0);
+  }
 
-  if (executorIds.length) {
+  if (executorIdsForLoad.length) {
     const { data: activeTickets, error: loadError } = await supabase
       .from('tickets')
       .select('executor_profile_id, status')
-      .in('executor_profile_id', executorIds)
+      .in('executor_profile_id', executorIdsForLoad)
       .in('status', ['open', 'in-progress']);
 
     if (loadError) {
@@ -819,18 +864,41 @@ async function executeAssignExecutor(
     }
   }
 
+  const getExecutorLoad = (executor: any) => {
+    const loadFromTickets = loadMap.get(executor.id);
+    if (typeof loadFromTickets === 'number') {
+      return loadFromTickets;
+    }
+    if (typeof executor.open_tickets_count === 'number') {
+      return executor.open_tickets_count;
+    }
+    if (typeof executor.assigned_tickets_count === 'number') {
+      return executor.assigned_tickets_count;
+    }
+    return 0;
+  };
+
+  filteredExecutors = filteredExecutors.filter((executor: any) => {
+    const configuredMax = executor.max_concurrent_tickets ?? 10;
+    const effectiveMax = configuredMax > 0 ? configuredMax : Number.POSITIVE_INFINITY;
+    const load = getExecutorLoad(executor);
+    return load < effectiveMax;
+  });
+
+  if (!filteredExecutors.length) {
+    console.warn('[create-ticket] No executors available under capacity', {
+      ticketId: ticket.id,
+      strategy,
+      ticketCategoryId,
+      ticketCategoryName,
+    });
+    return;
+  }
+
   const ranked = filteredExecutors
     .map((executor: any) => ({
       executor,
-      load:
-        loadMap.get(executor.id) ??
-        (typeof executor.assigned_tickets_count === 'number'
-          ? executor.assigned_tickets_count
-          : null) ??
-        (typeof executor.open_tickets_count === 'number'
-          ? executor.open_tickets_count
-          : null) ??
-        0,
+      load: getExecutorLoad(executor),
       tieBreaker: Math.random(),
     }))
     .sort((a, b) => {
@@ -868,8 +936,9 @@ async function executeAssignExecutor(
     throw updateError;
   }
 
+  const currentOpenLoad = getExecutorLoad(selected);
   const newAssignedCount = ((selected.assigned_tickets_count as number | undefined) ?? 0) + 1;
-  const newOpenCount = ((selected.open_tickets_count as number | undefined) ?? 0) + 1;
+  const newOpenCount = currentOpenLoad + 1;
 
   const { error: loadUpdateError } = await supabase
     .from('executor_profiles')

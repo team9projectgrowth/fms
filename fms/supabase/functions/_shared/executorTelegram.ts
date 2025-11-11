@@ -52,7 +52,6 @@ export interface TicketRecord {
   priority: string;
   category: string | null;
   location: string | null;
-  due_date?: string | null;
   sla_due_date?: string | null;
   tenant_id?: string | null;
   executor_profile_id?: string | null;
@@ -84,11 +83,21 @@ export async function handleExecutorTelegramUpdate(
 ): Promise<void> {
   try {
     if (update.callback_query) {
+      console.log('[executor-webhook] Received callback query', {
+        data: update.callback_query.data,
+        messageId: update.callback_query.message?.message_id,
+      });
       await handleCallbackQuery(update.callback_query, supabase, telegramBotToken);
       return;
     }
 
     if (update.message) {
+      console.log('[executor-webhook] Received message', {
+        messageId: update.message.message_id,
+        hasReply: Boolean(update.message.reply_to_message),
+        chatId: update.message.chat.id,
+        text: update.message.text,
+      });
       await handleIncomingMessage(update.message, supabase, telegramBotToken);
     }
   } catch (error) {
@@ -104,10 +113,6 @@ async function handleIncomingMessage(
   const chatId = message.chat.id;
   const text = (message.text ?? '').trim();
 
-  if (!text && !message.reply_to_message) {
-    return;
-  }
-
   const context = await getExecutorContext(chatId, supabase);
 
   if (!context) {
@@ -119,11 +124,9 @@ async function handleIncomingMessage(
     return;
   }
 
-  if (message.reply_to_message) {
-    const handled = await handleReplyToPrompt(message, context, supabase, token);
-    if (handled) {
-      return;
-    }
+  const handled = await handleUpdateSessionMessage(message, context, supabase, token);
+  if (handled) {
+    return;
   }
 
   if (!text) {
@@ -139,29 +142,34 @@ async function handleIncomingMessage(
   await safeSendMessage(token, chatId, 'Send /start or type "tickets" to view your assigned tickets.');
 }
 
-async function handleReplyToPrompt(
+async function handleUpdateSessionMessage(
   message: TelegramMessage,
   context: ExecutorContext,
   supabase: SupabaseClient,
   token: string,
 ): Promise<boolean> {
-  if (!message.reply_to_message) {
-    return false;
-  }
+  const replyToId = message.reply_to_message?.message_id ?? null;
 
-  const replyToId = message.reply_to_message.message_id;
-  const { data: session, error: sessionError } = await supabase
+  let sessionQuery = supabase
     .from('executor_ticket_sessions')
     .select('*')
     .eq('telegram_chat_id', context.chatIdStr)
-    .eq('prompt_message_id', replyToId)
     .eq('state', 'awaiting_input')
-    .maybeSingle();
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (replyToId !== null) {
+    sessionQuery = sessionQuery.eq('prompt_message_id', replyToId);
+  }
+
+  const { data: sessions, error: sessionError } = await sessionQuery;
 
   if (sessionError) {
-    console.error('[executor-webhook] Failed to fetch session for reply', sessionError);
+    console.error('[executor-webhook] Failed to fetch session for message', sessionError);
     return false;
   }
+
+  const session = Array.isArray(sessions) ? sessions[0] : sessions ?? null;
 
   if (!session) {
     return false;
@@ -186,6 +194,12 @@ async function handleReplyToPrompt(
     return true;
   }
 
+  console.log('[executor-webhook] Capturing update comment', {
+    ticketId: ticket.id,
+    sessionId: session.id,
+    comment,
+  });
+
   await insertTicketActivity(supabase, {
     ticket_id: ticket.id,
     tenant_id: ticket.tenant_id,
@@ -203,6 +217,16 @@ async function handleReplyToPrompt(
   await safeSendMessage(token, context.chatId, `Update captured for ticket ${ticket.ticket_number ?? ''}. Thank you!`);
 
   return true;
+}
+
+async function handleReplyToPrompt(
+  message: TelegramMessage,
+  context: ExecutorContext,
+  supabase: SupabaseClient,
+  token: string,
+): Promise<boolean> {
+  // deprecated; use handleUpdateSessionMessage directly
+  return handleUpdateSessionMessage(message, context, supabase, token);
 }
 
 async function handleCallbackQuery(
@@ -368,7 +392,7 @@ async function fetchExecutorTickets(context: ExecutorContext, supabase: Supabase
   let query = supabase
     .from('tickets')
     .select(
-      'id, ticket_number, title, description, status, priority, category, location, due_date, sla_due_date, tenant_id, executor_profile_id, executor_id, created_at',
+      'id, ticket_number, title, description, status, priority, category, location, sla_due_date, tenant_id, executor_profile_id, executor_id, created_at',
     )
     .in('status', ['open', 'in-progress'])
     .order('status', { ascending: true })
@@ -404,7 +428,7 @@ function formatTicketMessage(ticket: TicketRecord): string {
     lines.push(`Location: ${ticket.location}`);
   }
 
-  const due = ticket.due_date ?? ticket.sla_due_date;
+  const due = ticket.sla_due_date;
   if (due) {
     lines.push(`SLA: ${formatDateTime(due)}`);
   }
@@ -450,7 +474,7 @@ async function fetchTicketById(ticketId: string, supabase: SupabaseClient): Prom
   const { data, error } = await supabase
     .from('tickets')
     .select(
-      'id, ticket_number, title, description, status, priority, category, location, due_date, sla_due_date, tenant_id, executor_profile_id, executor_id, created_at',
+      'id, ticket_number, title, description, status, priority, category, location, sla_due_date, tenant_id, executor_profile_id, executor_id, created_at',
     )
     .eq('id', ticketId)
     .maybeSingle();
@@ -490,9 +514,6 @@ async function setTicketStatus(
   }
 
   const updates: Record<string, unknown> = { status: targetStatus };
-  if (targetStatus === 'resolved') {
-    updates.resolved_at = new Date().toISOString();
-  }
 
   const { error: updateError } = await supabase.from('tickets').update(updates).eq('id', ticket.id);
   if (updateError) {
@@ -575,6 +596,7 @@ async function startUpdateSession(
   );
 
   if (!prompt) {
+    console.error('[executor-webhook] Failed to send update prompt', { ticketId: ticket.id, chatId: context.chatIdStr });
     await answerCallbackQuery(token, callback.id, 'Unable to start update session.');
     return;
   }
@@ -631,6 +653,11 @@ async function insertTicketActivity(supabase: SupabaseClient, payload: TicketAct
 
   if (error) {
     console.error('[executor-webhook] Failed to insert ticket activity', error);
+  } else {
+    console.log('[executor-webhook] Ticket activity recorded', {
+      ticketId: payload.ticket_id,
+      activityType: payload.activity_type,
+    });
   }
 }
 

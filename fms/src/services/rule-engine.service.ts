@@ -480,13 +480,61 @@ export const ruleEngineService = {
     let executorUserId: string | null = null;
 
     const allExecutors = await executorsService.getExecutors(ticket.tenant_id || null);
-    const availableExecutors = allExecutors.filter((exec) => {
+    const statusEligibleExecutors = allExecutors.filter((exec) => {
       if (!exec.user?.is_active) return false;
       if (exec.availability_status !== 'available') return false;
-      return exec.assigned_tickets_count < (exec.max_concurrent_tickets || 10);
+      return true;
     });
 
-    let filteredExecutors = availableExecutors;
+    const executorIds = statusEligibleExecutors
+      .map((exec) => exec.id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    const loadMap = new Map<string, number>();
+    for (const id of executorIds) {
+      loadMap.set(id, 0);
+    }
+
+    if (executorIds.length) {
+      const { data: activeTickets, error: loadError } = await supabase
+        .from('tickets')
+        .select('executor_profile_id')
+        .in('executor_profile_id', executorIds)
+        .in('status', ['open', 'in-progress']);
+
+      if (loadError) {
+        console.error('[RuleEngine] Failed to fetch executor ticket load', loadError);
+      } else {
+        for (const row of activeTickets || []) {
+          const executorProfileId = row.executor_profile_id;
+          if (executorProfileId) {
+            loadMap.set(executorProfileId, (loadMap.get(executorProfileId) ?? 0) + 1);
+          }
+        }
+      }
+    }
+
+    const getExecutorLoad = (exec: any) => {
+      const loadFromTickets = loadMap.get(exec.id);
+      if (typeof loadFromTickets === 'number') {
+        return loadFromTickets;
+      }
+      if (typeof exec.open_tickets_count === 'number') {
+        return exec.open_tickets_count;
+      }
+      if (typeof (exec as any).assigned_tickets_count === 'number') {
+        return (exec as any).assigned_tickets_count;
+      }
+      return 0;
+    };
+
+    const capacityExecutors = statusEligibleExecutors.filter((exec) => {
+      const configuredMax = exec.max_concurrent_tickets ?? 10;
+      const effectiveMax = configuredMax > 0 ? configuredMax : Number.POSITIVE_INFINITY;
+      return getExecutorLoad(exec) < effectiveMax;
+    });
+
+    let filteredExecutors = capacityExecutors;
 
     const ticketCategoryId = (ticket as any).category_id || null;
     const ticketCategoryName = (ticket as any).category
@@ -494,7 +542,7 @@ export const ruleEngineService = {
       : null;
 
     if (config.strategy === 'specific_executor' && config.executor_id) {
-      const specific = availableExecutors.find((exec) => exec.id === config.executor_id);
+      const specific = capacityExecutors.find((exec) => exec.id === config.executor_id);
       if (specific) {
         filteredExecutors = [specific];
       } else {
@@ -506,7 +554,7 @@ export const ruleEngineService = {
         : [];
 
       if (requestedCategories.length > 0) {
-        filteredExecutors = availableExecutors.filter((exec) => {
+        filteredExecutors = capacityExecutors.filter((exec) => {
           const executorCategoryId = exec.category_id || null;
           const executorCategoryName = exec.category?.name
             ? String(exec.category.name).toLowerCase()
@@ -521,11 +569,11 @@ export const ruleEngineService = {
           });
         });
       } else if (ticketCategoryId) {
-        filteredExecutors = availableExecutors.filter(
+        filteredExecutors = capacityExecutors.filter(
           (exec) => exec.category_id && exec.category_id === ticketCategoryId,
         );
       } else if (ticketCategoryName) {
-        filteredExecutors = availableExecutors.filter((exec) => {
+        filteredExecutors = capacityExecutors.filter((exec) => {
           if (!exec.category?.name) return false;
           return String(exec.category.name).toLowerCase() === ticketCategoryName;
         });
@@ -533,12 +581,20 @@ export const ruleEngineService = {
     }
 
     if (filteredExecutors.length === 0) {
-      filteredExecutors = availableExecutors;
+      filteredExecutors = capacityExecutors;
+    }
+
+    if (filteredExecutors.length === 0) {
+      console.warn('[RuleEngine] assignExecutor:no-capacity', {
+        ticketId: ticket.id,
+        strategy: config.strategy,
+      });
+      return;
     }
 
     if (filteredExecutors.length > 0) {
       const sorted = filteredExecutors.sort(
-        (a, b) => a.assigned_tickets_count - b.assigned_tickets_count
+        (a, b) => getExecutorLoad(a) - getExecutorLoad(b)
       );
       const selected = sorted[0];
       executorId = selected.id;
