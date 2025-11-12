@@ -6,6 +6,7 @@ import { categoriesService } from '../../services/categories.service';
 import { executorSkillsService, type ExecutorSkill } from '../../services/executor-skills.service';
 import { useTenant } from '../../hooks/useTenant';
 import type { Category } from '../../types/database';
+import { userOnboardingService } from '../../services/user-onboarding.service';
 
 interface CreateEditExecutorFormProps {
   executorId?: string;
@@ -29,7 +30,7 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
     workEnd: '17:00',
     telegramChatId: '',
     telegramBotName: '',
-    active: true
+    active: !!executorId
   });
 
   const [loading, setLoading] = useState(false);
@@ -40,6 +41,12 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
   const [executorSkills, setExecutorSkills] = useState<ExecutorSkill[]>([]);
   const [allExecutorSkills, setAllExecutorSkills] = useState<ExecutorSkill[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
+  const [onboardingInfo, setOnboardingInfo] = useState<{
+    status?: string;
+    error?: string;
+    completedAt?: string;
+    deepLink?: string;
+  } | null>(executorId ? null : { status: 'pending' });
 
   useEffect(() => {
     loadCategories();
@@ -117,6 +124,13 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
           workStart: executor.work_start || '09:00',
           workEnd: executor.work_end || '17:00',
         }));
+
+        setOnboardingInfo({
+          status: (user as any).bot_onboarding_status,
+          error: (user as any).bot_onboarding_error,
+          completedAt: (user as any).bot_onboarding_completed_at,
+          deepLink: (user as any).bot_deep_link,
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load executor');
@@ -196,7 +210,53 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
           throw new Error(`Failed to create executor profile: ${executorError instanceof Error ? executorError.message : 'Unknown error'}`);
         }
 
-        setSuccessMessage('Executor created successfully!');
+        let onboardingError: string | null = null;
+        let onboardingSummary = 'Telegram onboarding invite queued.';
+        let onboardingResultStatus: 'queued' | 'already_completed' | undefined;
+
+        try {
+          const onboardingResult = await userOnboardingService.startOnboarding(newUser.id, 'user_created');
+          onboardingResultStatus = onboardingResult.status;
+          if (onboardingResult.status === 'already_completed') {
+            onboardingSummary = 'User already has an active Telegram chat ID on file.';
+          }
+        } catch (onboardingErr) {
+          onboardingError = onboardingErr instanceof Error ? onboardingErr.message : 'Unknown error while triggering onboarding.';
+          onboardingSummary = 'Executor created, but onboarding invite failed to dispatch. Check notifications.';
+          console.error('Executor onboarding webhook failed:', onboardingErr);
+        }
+
+        setSuccessMessage(`Executor created successfully. ${onboardingSummary}`);
+
+        const shouldCloseModal = onboardingError === null;
+
+        if (onboardingError) {
+          setError(`Onboarding webhook error: ${onboardingError}`);
+          setOnboardingInfo({
+            status: 'failed',
+            error: onboardingError,
+          });
+        } else if (onboardingResultStatus === 'already_completed') {
+          setOnboardingInfo({
+            status: 'completed',
+          });
+        } else {
+          setOnboardingInfo({
+            status: 'invited',
+          });
+        }
+
+        if (shouldCloseModal) {
+          setTimeout(() => {
+            onClose();
+          }, 1500);
+        }
+
+        if (onSuccess) {
+          onSuccess();
+        }
+
+        return;
       }
 
       if (onSuccess) {
@@ -345,6 +405,33 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
 
           <div className="border-t border-gray-300 pt-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Telegram Settings</h3>
+
+          {onboardingInfo?.status && (
+            <div className="mb-4 rounded-card border border-gray-200 bg-gray-50 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-gray-700">Bot Onboarding Status</span>
+                <span className={`ml-3 rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClasses(onboardingInfo.status)}`}>
+                  {formatStatus(onboardingInfo.status)}
+                </span>
+              </div>
+              {onboardingInfo.completedAt && (
+                <p className="text-xs text-gray-600 mt-2">
+                  Completed at {new Date(onboardingInfo.completedAt).toLocaleString()}
+                </p>
+              )}
+              {onboardingInfo.error && (
+                <p className="text-xs text-danger mt-2">
+                  Last error: {onboardingInfo.error}
+                </p>
+              )}
+              {!executorId && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Watch the dashboard notifications for live onboarding updates.
+                </p>
+              )}
+            </div>
+          )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Chat ID</label>
@@ -493,15 +580,25 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
             </div>
           </div>
 
-          <div className="flex items-center pt-4">
+        <div className="pt-4">
+          <div className="flex items-center">
             <input
               type="checkbox"
               checked={formData.active}
               onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
               className="w-4 h-4 text-primary border-gray-300 rounded mr-2"
+              disabled={!executorId}
             />
-            <label className="text-sm font-medium text-gray-700">Active</label>
+            <label className="text-sm font-medium text-gray-700">
+              Active {executorId ? '' : '(auto-enabled after Telegram setup)'}
+            </label>
           </div>
+          {!executorId && (
+            <p className="text-xs text-gray-500 ml-6 mt-1">
+              New executors stay inactive until the chatbot confirms their Telegram chat ID.
+            </p>
+          )}
+        </div>
 
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-300">
             <button
@@ -524,5 +621,40 @@ export default function CreateEditExecutorForm({ executorId, onClose, onSuccess 
       </div>
     </div>
   );
+}
+
+function formatStatus(status?: string) {
+  switch (status) {
+    case 'pending':
+      return 'Pending';
+    case 'invited':
+      return 'Invite Sent';
+    case 'awaiting_chat':
+      return 'Awaiting Chat';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return status || 'Unknown';
+  }
+}
+
+function getStatusBadgeClasses(status?: string) {
+  switch (status) {
+    case 'completed':
+      return 'bg-success/10 text-success';
+    case 'failed':
+      return 'bg-danger/10 text-danger';
+    case 'awaiting_chat':
+      return 'bg-warning/10 text-warning';
+    case 'pending':
+    case 'invited':
+      return 'bg-primary/10 text-primary';
+    default:
+      return 'bg-gray-200 text-gray-700';
+  }
 }
 

@@ -4,6 +4,7 @@ import { usersService } from '../../services/users.service';
 import { designationsService } from '../../services/designations.service';
 import { useTenant } from '../../hooks/useTenant';
 import type { Designation } from '../../types/database';
+import { userOnboardingService } from '../../services/user-onboarding.service';
 
 interface CreateEditComplainantFormProps {
   complainantId?: string;
@@ -23,7 +24,7 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
     designationId: '',
     telegramChatId: '',
     telegramBotName: '',
-    active: true
+    active: !!complainantId
   });
 
   const [loading, setLoading] = useState(false);
@@ -31,6 +32,12 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loadingDesignations, setLoadingDesignations] = useState(false);
+  const [onboardingInfo, setOnboardingInfo] = useState<{
+    status?: string;
+    error?: string;
+    completedAt?: string;
+    deepLink?: string;
+  } | null>(complainantId ? null : { status: 'pending' });
 
   useEffect(() => {
     loadDesignations();
@@ -68,6 +75,13 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
           telegramBotName: (user as any).telegram_user_id || '',
           active: user.active
         }));
+
+        setOnboardingInfo({
+          status: (user as any).bot_onboarding_status,
+          error: (user as any).bot_onboarding_error,
+          completedAt: (user as any).bot_onboarding_completed_at,
+          deepLink: (user as any).bot_deep_link,
+        });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load complainant');
@@ -104,7 +118,7 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
           return;
         }
 
-        await usersService.createUser({
+        const newUser = await usersService.createUser({
           email: formData.email,
           password: formData.password,
           user_type: 'complainant',
@@ -118,7 +132,51 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
           active: formData.active,
         });
 
-        setSuccessMessage('Complainant created successfully!');
+        let onboardingError: string | null = null;
+        let onboardingSummary = 'Telegram onboarding invite queued.';
+        let onboardingResultStatus: 'queued' | 'already_completed' | undefined;
+
+        try {
+          const onboardResult = await userOnboardingService.startOnboarding(newUser.id, 'user_created');
+          onboardingResultStatus = onboardResult.status;
+          if (onboardResult.status === 'already_completed') {
+            onboardingSummary = 'User already has an active Telegram chat ID on file.';
+          }
+        } catch (onboardErr) {
+          onboardingError = onboardErr instanceof Error ? onboardErr.message : 'Unknown error while triggering onboarding.';
+          onboardingSummary = 'Complainant created, but onboarding invite failed to dispatch. Check notifications.';
+          console.error('Complainant onboarding webhook failed:', onboardErr);
+        }
+
+        setSuccessMessage(`Complainant created successfully. ${onboardingSummary}`);
+
+        if (onboardingError) {
+          setError(`Onboarding webhook error: ${onboardingError}`);
+          setOnboardingInfo({
+            status: 'failed',
+            error: onboardingError,
+          });
+        } else if (onboardingResultStatus === 'already_completed') {
+          setOnboardingInfo({
+            status: 'completed',
+          });
+        } else {
+          setOnboardingInfo({
+            status: 'invited',
+          });
+        }
+
+        if (!onboardingError) {
+          setTimeout(() => {
+            onClose();
+          }, 1500);
+        }
+
+        if (onSuccess) {
+          onSuccess();
+        }
+
+        return;
       }
 
       if (onSuccess) {
@@ -285,6 +343,33 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
 
           <div className="border-t border-gray-300 pt-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Telegram Settings</h3>
+
+          {onboardingInfo?.status && (
+            <div className="mb-4 rounded-card border border-gray-200 bg-gray-50 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-gray-700">Bot Onboarding Status</span>
+                <span className={`ml-3 rounded-full px-2 py-1 text-xs font-semibold uppercase ${getStatusBadgeClasses(onboardingInfo.status)}`}>
+                  {formatStatus(onboardingInfo.status)}
+                </span>
+              </div>
+              {onboardingInfo.completedAt && (
+                <p className="text-xs text-gray-600 mt-2">
+                  Completed at {new Date(onboardingInfo.completedAt).toLocaleString()}
+                </p>
+              )}
+              {onboardingInfo.error && (
+                <p className="text-xs text-danger mt-2">
+                  Last error: {onboardingInfo.error}
+                </p>
+              )}
+              {!complainantId && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Watch the dashboard notifications for live onboarding updates.
+                </p>
+              )}
+            </div>
+          )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Chat ID</label>
@@ -309,15 +394,25 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
             </div>
           </div>
 
-          <div className="flex items-center pt-4">
+        <div className="pt-4">
+          <div className="flex items-center">
             <input
               type="checkbox"
               checked={formData.active}
               onChange={(e) => setFormData({ ...formData, active: e.target.checked })}
               className="w-4 h-4 text-primary border-gray-300 rounded mr-2"
+              disabled={!complainantId}
             />
-            <label className="text-sm font-medium text-gray-700">Active</label>
+            <label className="text-sm font-medium text-gray-700">
+              Active {complainantId ? '' : '(auto-enabled after Telegram setup)'}
+            </label>
           </div>
+          {!complainantId && (
+            <p className="text-xs text-gray-500 ml-6 mt-1">
+              New complainants remain inactive until they start the Telegram bot.
+            </p>
+          )}
+        </div>
 
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-300">
             <button
@@ -340,5 +435,40 @@ export default function CreateEditComplainantForm({ complainantId, onClose, onSu
       </div>
     </div>
   );
+}
+
+function formatStatus(status?: string) {
+  switch (status) {
+    case 'pending':
+      return 'Pending';
+    case 'invited':
+      return 'Invite Sent';
+    case 'awaiting_chat':
+      return 'Awaiting Chat';
+    case 'completed':
+      return 'Completed';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return status || 'Unknown';
+  }
+}
+
+function getStatusBadgeClasses(status?: string) {
+  switch (status) {
+    case 'completed':
+      return 'bg-success/10 text-success';
+    case 'failed':
+      return 'bg-danger/10 text-danger';
+    case 'awaiting_chat':
+      return 'bg-warning/10 text-warning';
+    case 'pending':
+    case 'invited':
+      return 'bg-primary/10 text-primary';
+    default:
+      return 'bg-gray-200 text-gray-700';
+  }
 }
 

@@ -35,6 +35,15 @@ export type ExecutorAssignmentStrategy = 'skill_match' | 'load_balance' | 'round
 export type ExecutorTicketSessionType = 'update' | 'status_change';
 export type ExecutorTicketSessionState = 'awaiting_input' | 'completed' | 'cancelled' | 'expired';
 
+export type BotOnboardingStatus =
+  | 'not_required'
+  | 'pending'
+  | 'invited'
+  | 'awaiting_chat'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
 export interface User {
   id: string;
   email: string;
@@ -49,6 +58,13 @@ export interface User {
   is_active: boolean;
   telegram_user_id?: string;
   telegram_chat_id?: string;
+  bot_onboarding_status?: BotOnboardingStatus;
+  bot_onboarding_started_at?: string;
+  bot_onboarding_completed_at?: string;
+  bot_onboarding_error?: string;
+  bot_onboarding_retry_count?: number;
+  bot_deep_link?: string;
+  bot_correlation_id?: string;
   created_at: string;
 }
 
@@ -203,6 +219,21 @@ export interface CreateUserInput {
   telegram_chat_id?: string;
   telegram_user_id?: string;
   active?: boolean;
+}
+
+export interface TenantNotification {
+  id: string;
+  tenant_id: string;
+  user_id?: string;
+  triggered_by?: string;
+  type: string;
+  title: string;
+  message: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  status: 'unread' | 'read';
+  metadata?: Record<string, any>;
+  created_at: string;
+  read_at?: string;
 }
 
 export interface CreateExecutorInput {

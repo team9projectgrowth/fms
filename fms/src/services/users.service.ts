@@ -58,6 +58,13 @@ export const usersService = {
       active: user.is_active,
       telegram_chat_id: user.telegram_chat_id,
       telegram_user_id: user.telegram_user_id,
+      bot_onboarding_status: user.bot_onboarding_status,
+      bot_onboarding_started_at: user.bot_onboarding_started_at,
+      bot_onboarding_completed_at: user.bot_onboarding_completed_at,
+      bot_onboarding_error: user.bot_onboarding_error,
+      bot_onboarding_retry_count: user.bot_onboarding_retry_count,
+      bot_deep_link: user.bot_deep_link,
+      bot_correlation_id: user.bot_correlation_id,
     })) as User[];
   },
 
@@ -82,177 +89,45 @@ export const usersService = {
       active: user.is_active,
       telegram_chat_id: user.telegram_chat_id,
       telegram_user_id: user.telegram_user_id,
+      bot_onboarding_status: user.bot_onboarding_status,
+      bot_onboarding_started_at: user.bot_onboarding_started_at,
+      bot_onboarding_completed_at: user.bot_onboarding_completed_at,
+      bot_onboarding_error: user.bot_onboarding_error,
+      bot_onboarding_retry_count: user.bot_onboarding_retry_count,
+      bot_deep_link: user.bot_deep_link,
+      bot_correlation_id: user.bot_correlation_id,
     } as User;
   },
 
   async createUser(input: CreateUserInput) {
-    const { email, password, user_type, ...userData } = input;
-
-    // For tenant admins, automatically set tenant_id from current user
-    let tenantId = (userData as any).tenant_id;
-    if (!tenantId) {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (authUser) {
-        try {
-          const { data: currentUser, error: userFetchError } = await supabase
-            .from('users')
-            .select('tenant_id, role')
-            .eq('id', authUser.id)
-            .maybeSingle();
-          
-          if (userFetchError) {
-            console.error('Error fetching current user for tenant_id:', userFetchError);
-            throw new Error('Failed to verify user permissions. Please try again.');
-          }
-          
-          // If current user is tenant_admin, use their tenant_id for new users
-          if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
-            tenantId = currentUser.tenant_id;
-            console.log('Setting tenant_id for new user:', tenantId);
-          } else if (currentUser?.role === 'tenant_admin' && !currentUser.tenant_id) {
-            throw new Error('Tenant admin has no tenant assigned. Please contact support.');
-          } else if (currentUser?.role === 'admin' && currentUser.tenant_id === null) {
-            // Super admin can create users without tenant_id (for admin users)
-            // But executors and complainants require tenant_id
-            if (user_type === 'executor' || user_type === 'complainant') {
-              throw new Error('Tenant ID is required for executors and complainants. Please select a tenant.');
-            }
-            tenantId = null; // Super admin creating admin user
-          }
-        } catch (err) {
-          if (err instanceof Error && err.message.includes('Tenant ID is required')) {
-            throw err;
-          }
-          console.error('Error getting tenant_id for new user:', err);
-          throw new Error('Failed to determine tenant. Please try again.');
-        }
-      }
-    }
-    
-    // REQUIRE tenant_id for executors and complainants (unless super admin explicitly sets it to null)
-    if ((user_type === 'executor' || user_type === 'complainant') && !tenantId) {
-      throw new Error(`Tenant ID is required for ${user_type} users. Please ensure you are logged in as a tenant admin or select a tenant.`);
-    }
-    
-    // Super admin users can have null tenant_id, but others should have it
-    if (!tenantId && user_type !== 'admin') {
-      throw new Error('Tenant ID is required for this user type. Please contact support if you are a tenant admin.');
-    }
-
-    // Check if user already exists in users table for this tenant
-    const { data: existingUser, error: checkError } = await supabase
-      .from('users')
-      .select('id, email, tenant_id')
-      .eq('email', email)
-      .eq('tenant_id', tenantId)
-      .maybeSingle();
-
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows found"
-      console.error('Error checking for existing user:', checkError);
-      throw new Error('Failed to check for existing user. Please try again.');
-    }
-
-    if (existingUser) {
-      throw new Error('A user with this email already exists in this tenant.');
-    }
-
-    // Check if email exists in users table for any tenant (to detect cross-tenant conflicts)
-    const { data: crossTenantUser } = await supabase
-      .from('users')
-      .select('id, email, tenant_id')
-      .eq('email', email)
-      .maybeSingle();
-
-    if (crossTenantUser && crossTenantUser.tenant_id !== tenantId) {
-      throw new Error(`This email is already registered with a different tenant. Please use a different email or contact support.`);
-    }
-
-    // Try to sign up the user in Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          name: input.name,
-          role: user_type,
-        }
-      }
+    const { data, error } = await supabase.functions.invoke<{
+      status: string;
+      user?: any;
+      error?: string;
+    }>('tenant-create-user', {
+      body: input,
     });
 
-    // Handle "User already registered" error from Supabase Auth
-    if (authError) {
-      if (authError.message?.includes('already registered') || authError.message?.includes('User already registered')) {
-        // Check if there's an orphaned auth user (exists in auth but not in users table)
-        // This requires admin API access, so we'll provide a helpful error message
-        throw new Error(
-          `This email is already registered in Supabase Auth. ` +
-          `If this is the first user for this tenant, the email may have been used previously. ` +
-          `Please use a different email, or contact support to clean up the orphaned auth user.`
-        );
-      }
-      throw authError;
+    if (error) {
+      throw new Error(error.message || 'Failed to create user.');
     }
 
-    if (!authData?.user) {
-      throw new Error('User creation failed');
+    if (!data?.user) {
+      throw new Error(data?.error || 'User creation failed.');
     }
 
-    // Map user_type to role and handle column name differences
-    // Convert empty string emp_code to NULL to avoid unique constraint violations
-    const empCode = userData.employee_id && userData.employee_id.trim() !== '' 
-      ? userData.employee_id.trim() 
-      : null;
+    const user = data.user;
 
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .insert({
-        id: authData.user.id,
-        email,
-        full_name: input.name,
-        role: user_type, // Database uses 'role' column
-        phone: userData.phone || null,
-        department: userData.department || null,
-        emp_code: empCode, // Use NULL instead of empty string
-        designation_id: (userData as any).designation_id && (userData as any).designation_id.trim() !== '' 
-          ? (userData as any).designation_id 
-          : null,
-        tenant_id: tenantId,
-        is_active: userData.active !== false,
-        telegram_chat_id: (userData as any).telegram_chat_id && (userData as any).telegram_chat_id.trim() !== '' 
-          ? parseFloat((userData as any).telegram_chat_id) || null 
-          : null,
-        telegram_user_id: (userData as any).telegram_user_id && (userData as any).telegram_user_id.trim() !== '' 
-          ? (userData as any).telegram_user_id 
-          : null,
-      })
-      .select()
-      .single();
-
-    if (userError) {
-      console.error('Error creating user in users table:', {
-        error: userError.message,
-        details: userError.details,
-        hint: userError.hint,
-        code: userError.code,
-        userId: authData.user.id,
-        tenantId,
-        userType: user_type
-      });
-      
-      // Provide user-friendly error messages
-      if (userError.code === '23505') { // Unique constraint violation
-        if (userError.message?.includes('users_tenant_id_emp_code_key')) {
-          throw new Error('An employee code already exists for this tenant. Please use a unique employee code or leave it empty.');
-        } else if (userError.message?.includes('users_tenant_id_email_key')) {
-          throw new Error('A user with this email already exists in this tenant.');
-        } else {
-          throw new Error('A user with this information already exists. Please check email and employee code.');
-        }
-      }
-      
-      throw userError;
-    }
-    return user as User;
+    return {
+      ...user,
+      name: user.full_name,
+      user_type: user.role,
+      employee_id: user.emp_code,
+      designation_id: user.designation_id,
+      active: user.is_active,
+      telegram_chat_id: user.telegram_chat_id,
+      telegram_user_id: user.telegram_user_id,
+    } as User;
   },
 
   async updateUser(id: string, updates: Partial<User>) {

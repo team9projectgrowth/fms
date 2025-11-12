@@ -284,3 +284,18 @@ curl -X POST https://<project-ref>.supabase.co/functions/v1/telegram-webhook \
 5. Test end-to-end flow
 6. Monitor logs for any issues
 
+---
+
+## 9. Telegram Bot User Onboarding (Deep Link Email)
+
+New complainants and executors are invited to the Telegram bot through a Make scenario:
+
+1. Supabase Edge Function `user-onboarding-request` sends a payload (email, role, correlation id) to the Make webhook.
+2. Make generates a Telegram deep-link URL (`https://t.me/<bot>?start=<correlation_id>`).
+3. Make sends an invite email with the deep link.
+4. The correlation id is stored (Make Data Store) while the system waits for the user.
+5. When the user clicks "Start" in Telegram, Make (or the Telegram bot webhook) posts the chat id and correlation id to `user-onboarding-callback`.
+6. Supabase updates the user record (`telegram_chat_id`, onboarding status) and pushes a dashboard notification.
+
+Implementation details, blueprints, and optional modules are documented in [`docs/make-user-onboarding-scenario.md`](docs/make-user-onboarding-scenario.md).
+
