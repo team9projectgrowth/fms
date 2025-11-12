@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import type { Tenant, CreateTenantInput, UpdateTenantInput } from '../types/database';
+import type { Tenant, CreateTenantInput, UpdateTenantInput, User } from '../types/database';
 
 export const tenantsService = {
   async getTenants() {
@@ -10,6 +10,53 @@ export const tenantsService = {
 
     if (error) throw error;
     return (data || []) as Tenant[];
+  },
+
+  async getTenantAdminUsers(tenantId: string) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .eq('role', 'tenant_admin')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return (data || []) as User[];
+  },
+
+  async resetTenantAdminPassword(tenantId: string, tenantAdminId: string, newPassword: string) {
+    const { data, error } = await supabase.functions.invoke('reset-tenant-admin-password', {
+      body: {
+        tenantId,
+        tenantAdminId,
+        newPassword,
+      },
+    });
+
+    if (error) {
+      throw new Error(error.message || 'Failed to reset tenant admin password');
+    }
+
+    return data as { success: boolean };
+  },
+
+  async updateTenantAdminUser(tenantAdminId: string, updates: { name?: string; email?: string }) {
+    const payload: Record<string, any> = {};
+    if (updates.name !== undefined) payload.full_name = updates.name;
+    if (updates.email !== undefined) payload.email = updates.email;
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(payload)
+      .eq('id', tenantAdminId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data as User;
   },
 
   async getTenantById(id: string) {
