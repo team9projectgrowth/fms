@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Search, Filter, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, 
-  Plus, Download, Edit, Trash2, RefreshCw, X, Eye, ArrowUpDown 
+  Plus, Download, Edit, Trash2, RefreshCw, X, Eye, ArrowUpDown, Columns3 
 } from 'lucide-react';
 import { ticketsService } from '../../services/tickets.service';
 import { executorsService } from '../../services/executors.service';
@@ -36,6 +36,31 @@ import CreateTicketModal from '../components/CreateTicketModal';
 type SortField = 'ticket_number' | 'title' | 'status' | 'priority' | 'created_at' | 'updated_at' | 'category' | 'open_days';
 type SortDirection = 'asc' | 'desc';
 
+type TenantTicketColumnKey =
+  | 'ticket_id'
+  | 'title'
+  | 'description'
+  | 'status'
+  | 'priority'
+  | 'created'
+  | 'executor'
+  | 'complainant'
+  | 'category'
+  | 'sla'
+  | 'updated'
+  | 'last_comment'
+  | 'open_days'
+  | 'actions';
+
+interface TenantTicketColumnConfig {
+  key: TenantTicketColumnKey;
+  label: string;
+  optional?: boolean;
+  sortableField?: SortField | 'title';
+}
+
+const TENANT_TICKET_COLUMNS_KEY = 'tenantTicketsColumnVisibility.v1';
+
 export default function TenantTicketDashboard() {
   const { activeTenantId } = useTenant();
   const [tickets, setTickets] = useState<TicketWithRelations[]>([]);
@@ -56,6 +81,24 @@ export default function TenantTicketDashboard() {
   const [createdFrom, setCreatedFrom] = useState<string>('');
   const [createdTo, setCreatedTo] = useState<string>('');
   const [showFilters, setShowFilters] = useState(false);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [ticketColumnVisibility, setTicketColumnVisibility] = useState<Record<TenantTicketColumnKey, boolean>>({
+    ticket_id: true,
+    title: true,
+    description: true,
+    status: true,
+    priority: true,
+    created: true,
+    executor: true,
+    complainant: true,
+    category: true,
+    sla: true,
+    updated: true,
+    last_comment: true,
+    open_days: true,
+    actions: true,
+  });
+  const [exporting, setExporting] = useState(false);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -72,6 +115,182 @@ export default function TenantTicketDashboard() {
   const [executors, setExecutors] = useState<ExecutorProfileWithUser[]>([]);
   const [complainants, setComplainants] = useState<User[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+
+  const buildCurrentFilters = useCallback((): TicketFilters => ({
+    status: selectedStatus.length > 0 ? selectedStatus : undefined,
+    priority: selectedPriority.length > 0 ? selectedPriority : undefined,
+    category: selectedCategory.length > 0 ? selectedCategory : undefined,
+    executor_id: selectedExecutor || undefined,
+    complainant_id: selectedComplainant || undefined,
+    search: searchTerm || undefined,
+    created_from: createdFrom || undefined,
+    created_to: createdTo || undefined,
+    sort_by: sortField,
+    sort_order: sortDirection,
+  }), [
+    selectedStatus,
+    selectedPriority,
+    selectedCategory,
+    selectedExecutor,
+    selectedComplainant,
+    searchTerm,
+    createdFrom,
+    createdTo,
+    sortField,
+    sortDirection,
+  ]);
+
+  useEffect(() => {
+    loadTenantColumnPreferences();
+  }, []);
+
+  const tenantColumnsConfig = useMemo<TenantTicketColumnConfig[]>(
+    () => [
+      { key: 'ticket_id', label: 'Ticket ID', optional: false, sortableField: 'ticket_number' },
+      { key: 'title', label: 'Title', optional: false, sortableField: 'title' },
+      { key: 'description', label: 'Description', optional: true },
+      { key: 'status', label: 'Status', optional: false, sortableField: 'status' },
+      { key: 'priority', label: 'Priority', optional: false, sortableField: 'priority' },
+      { key: 'created', label: 'Created', optional: true, sortableField: 'created_at' },
+      { key: 'executor', label: 'Allocated To', optional: true },
+      { key: 'complainant', label: 'Complainant', optional: true },
+      { key: 'category', label: 'Category', optional: true, sortableField: 'category' },
+      { key: 'sla', label: 'SLA', optional: true },
+      { key: 'updated', label: 'Last Update', optional: true, sortableField: 'updated_at' },
+      { key: 'last_comment', label: 'Last Comment', optional: true },
+      { key: 'open_days', label: 'Open Days', optional: true, sortableField: 'open_days' },
+      { key: 'actions', label: 'Actions', optional: false },
+    ],
+    [],
+  );
+
+  const visibleTenantColumns = useMemo(
+    () => tenantColumnsConfig.filter((column) => ticketColumnVisibility[column.key]),
+    [tenantColumnsConfig, ticketColumnVisibility],
+  );
+
+  const toggleTenantColumn = (key: TenantTicketColumnKey) => {
+    setTicketColumnVisibility((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      try {
+        localStorage.setItem(TENANT_TICKET_COLUMNS_KEY, JSON.stringify(next));
+      } catch (err) {
+        console.warn('Failed to persist tenant ticket column preferences', err);
+      }
+      return next;
+    });
+  };
+
+  const loadTenantColumnPreferences = () => {
+    try {
+      const raw = localStorage.getItem(TENANT_TICKET_COLUMNS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        setTicketColumnVisibility((prev) => ({
+          ...prev,
+          ...parsed,
+        }));
+      }
+    } catch (err) {
+      console.warn('Failed to load tenant ticket column preferences', err);
+    }
+  };
+
+  const escapeCsvValue = (value: unknown): string => {
+    if (value === null || value === undefined) return '';
+    const stringValue = String(value);
+    if (stringValue.includes('"') || stringValue.includes(',') || stringValue.includes('\n')) {
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    }
+    return stringValue;
+  };
+
+  const downloadCsv = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportAllTickets = async () => {
+    if (!activeTenantId) {
+      alert('Please select a tenant first.');
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const filters = buildCurrentFilters();
+      const pageSize = 500;
+      let page = 1;
+      let allTickets: TicketWithRelations[] = [];
+      let totalTickets = 0;
+
+      do {
+        const result = await ticketsService.getTicketsForTenant(activeTenantId, filters, page, pageSize);
+        allTickets = allTickets.concat(result.tickets);
+        totalTickets = result.total;
+        if (result.tickets.length < pageSize) {
+          break;
+        }
+        page += 1;
+      } while (allTickets.length < totalTickets);
+
+      if (allTickets.length === 0) {
+        alert('No tickets available to export.');
+        return;
+      }
+
+      const headers = [
+        'Ticket ID',
+        'Title',
+        'Description',
+        'Status',
+        'Priority',
+        'Category',
+        'SLA Status',
+        'Due Date',
+        'Open Days',
+        'Complainant',
+        'Executor',
+        'Created At',
+        'Updated At',
+        'Last Comment',
+      ];
+
+      const rows = allTickets.map((ticket) => [
+        escapeCsvValue(ticket.ticket_number || ticket.id.substring(0, 8)),
+        escapeCsvValue(ticket.title),
+        escapeCsvValue(ticket.description),
+        escapeCsvValue(formatStatusLabel(ticket.status)),
+        escapeCsvValue(formatPriorityLabel(ticket.priority)),
+        escapeCsvValue(ticket.category),
+        escapeCsvValue(ticket.sla_status || ''),
+        escapeCsvValue(ticket.due_date ? new Date(ticket.due_date).toISOString() : ''),
+        escapeCsvValue(ticket.open_days ?? ''),
+        escapeCsvValue(ticket.complainant?.full_name || ticket.complainant?.email || '-'),
+        escapeCsvValue(ticket.executor_profile?.user?.full_name || ticket.executor_profile?.user?.email || '-'),
+        escapeCsvValue(new Date(ticket.created_at).toISOString()),
+        escapeCsvValue(new Date(ticket.updated_at).toISOString()),
+        escapeCsvValue(ticket.last_activity_comment || ''),
+      ]);
+
+      const csv = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+      const filename = `tenant-tickets-${new Date().toISOString().split('T')[0]}.csv`;
+      downloadCsv(csv, filename);
+    } catch (err: any) {
+      console.error('Failed to export tickets:', err);
+      alert(err?.message || 'Failed to export tickets. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   useEffect(() => {
     if (activeTenantId) {
@@ -123,20 +342,7 @@ export default function TenantTicketDashboard() {
       setLoading(true);
       setError(null);
 
-      const filters: TicketFilters = {
-        status: selectedStatus.length > 0 ? selectedStatus : undefined,
-        priority: selectedPriority.length > 0 ? selectedPriority : undefined,
-        category: selectedCategory.length > 0 ? selectedCategory : undefined,
-        executor_id: selectedExecutor || undefined,
-        complainant_id: selectedComplainant || undefined,
-        search: searchTerm || undefined,
-        created_from: createdFrom || undefined,
-        created_to: createdTo || undefined,
-        sort_by: sortField,
-        sort_order: sortDirection,
-        tenant_id: activeTenantId,
-      };
-
+      const filters = buildCurrentFilters();
       const result = await ticketsService.getTicketsForTenant(activeTenantId, filters, currentPage, limit);
       setTickets(result.tickets);
       setTotal(result.total);
@@ -146,27 +352,6 @@ export default function TenantTicketDashboard() {
       setError(err?.message || 'Failed to load tickets. Please try again.');
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function loadDropdownOptions() {
-    if (!activeTenantId) return;
-
-    try {
-      // Load executors from database
-      const executorsData = await executorsService.getExecutors(activeTenantId);
-      setExecutors(executorsData);
-
-      // Load complainants from database
-      const complainantsData = await usersService.getUsers(activeTenantId);
-      const filteredComplainants = complainantsData.filter(u => u.role === 'complainant');
-      setComplainants(filteredComplainants);
-
-      // Load categories from database
-      const categoriesData = await categoriesService.getActive(activeTenantId);
-      setCategories(categoriesData);
-    } catch (err) {
-      console.error('Failed to load dropdown options:', err);
     }
   }
 
@@ -181,20 +366,7 @@ export default function TenantTicketDashboard() {
       setLoading(true);
       setError(null);
 
-      const filters: TicketFilters = {
-        status: selectedStatus.length > 0 ? selectedStatus : undefined,
-        priority: selectedPriority.length > 0 ? selectedPriority : undefined,
-        category: selectedCategory.length > 0 ? selectedCategory : undefined,
-        executor_id: selectedExecutor || undefined,
-        complainant_id: selectedComplainant || undefined,
-        search: searchTerm || undefined,
-        created_from: createdFrom || undefined,
-        created_to: createdTo || undefined,
-        sort_by: sortField,
-        sort_order: sortDirection,
-        tenant_id: activeTenantId,
-      };
-
+      const filters = buildCurrentFilters();
       const result = await ticketsService.getTicketsForTenant(activeTenantId, filters, currentPage, limit);
       setTickets(result.tickets);
       setTotal(result.total);
@@ -361,6 +533,36 @@ export default function TenantTicketDashboard() {
           <p className="text-gray-600 mt-1">Manage and track all tickets for your tenant</p>
         </div>
         <div className="flex gap-3">
+          <div className="relative">
+            <button
+              onClick={() => setShowColumnPicker((prev) => !prev)}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 text-sm"
+              title="Choose Columns"
+            >
+              <Columns3 size={16} />
+              Columns
+            </button>
+            {showColumnPicker && (
+              <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-30 p-3 space-y-2">
+                <div className="text-sm font-semibold text-gray-700 mb-2">Visible Columns</div>
+                {tenantColumnsConfig.map((column) => (
+                  <label key={column.key} className="flex items-center text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2 rounded text-primary focus:ring-primary"
+                      checked={ticketColumnVisibility[column.key]}
+                      onChange={() => toggleTenantColumn(column.key)}
+                      disabled={!column.optional && ticketColumnVisibility[column.key]}
+                    />
+                    <span className={column.optional ? '' : 'font-medium'}>
+                      {column.label}
+                      {!column.optional && <span className="ml-1 text-xs text-gray-400">(required)</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             onClick={() => setShowCreateModal(true)}
             className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 flex items-center gap-2"
@@ -378,11 +580,13 @@ export default function TenantTicketDashboard() {
             Refresh
           </button>
           <button
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+            onClick={handleExportAllTickets}
+            disabled={exporting}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             title="Export"
           >
             <Download size={16} />
-            Export
+            {exporting ? 'Exporting...' : 'Export CSV'}
           </button>
         </div>
       </div>
@@ -563,142 +767,163 @@ export default function TenantTicketDashboard() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('ticket_number')}>
-                      <div className="flex items-center gap-1">
-                        Ticket ID
-                        {getSortIcon('ticket_number')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('title')}>
-                      <div className="flex items-center gap-1">
-                        Title
-                        {getSortIcon('title')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Description</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('status')}>
-                      <div className="flex items-center gap-1">
-                        Status
-                        {getSortIcon('status')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('priority')}>
-                      <div className="flex items-center gap-1">
-                        Priority
-                        {getSortIcon('priority')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('created_at')}>
-                      <div className="flex items-center gap-1">
-                        Created
-                        {getSortIcon('created_at')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Allocated To</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Complainant</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Category</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">SLA</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('updated_at')}>
-                      <div className="flex items-center gap-1">
-                        Last Update
-                        {getSortIcon('updated_at')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Last Comment</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider cursor-pointer hover:bg-gray-100" onClick={() => handleSort('open_days')}>
-                      <div className="flex items-center gap-1">
-                        Open Days
-                        {getSortIcon('open_days')}
-                      </div>
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Actions</th>
+                    {visibleTenantColumns.map((column) => {
+                      const isSortable = Boolean(column.sortableField);
+                      const headerClass = `px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider ${
+                        isSortable ? 'cursor-pointer hover:bg-gray-100' : ''
+                      }`;
+
+                      if (isSortable && column.sortableField) {
+                        return (
+                          <th
+                            key={column.key}
+                            className={headerClass}
+                            onClick={() => handleSort(column.sortableField as SortField)}
+                          >
+                            <div className="flex items-center gap-1">
+                              {column.label}
+                              {getSortIcon(column.sortableField as SortField)}
+                            </div>
+                          </th>
+                        );
+                      }
+
+                      return (
+                        <th key={column.key} className={headerClass}>
+                          {column.label}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {tickets.map((ticket) => {
-                    const slaStatus = calculateSLAStatus(ticket);
-                    const openDays = calculateOpenDays(ticket);
+                    const slaStatus = ticketColumnVisibility.sla ? calculateSLAStatus(ticket) : null;
+                    const openDays = ticketColumnVisibility.open_days ? calculateOpenDays(ticket) : null;
+
                     return (
                       <tr key={ticket.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => handleTicketClick(ticket)}
-                            className="text-primary hover:underline font-medium"
-                          >
-                            {ticket.ticket_number || ticket.id.substring(0, 8)}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs">
-                          {truncateText(ticket.title, 50)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
-                          {truncateText(ticket.description, 50)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadgeColor(ticket.status)}`}>
-                            {formatStatusLabel(ticket.status)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityBadgeColor(ticket.priority)}`}>
-                            {formatPriorityLabel(ticket.priority)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {new Date(ticket.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {ticket.executor_profile?.user?.full_name || ticket.executor_profile?.user?.name || ticket.executor?.user?.full_name || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {ticket.complainant?.full_name || ticket.complainant?.email || '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {ticket.category}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          {slaStatus ? (
-                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getSLABadgeColor(slaStatus)}`}>
-                              {formatSLA(ticket)}
-                            </span>
-                          ) : (
-                            <span className="text-gray-500">No SLA</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {new Date(ticket.updated_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
-                          {ticket.last_activity_comment ? truncateText(ticket.last_activity_comment, 40) : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-700">
-                          {openDays > 0 ? `${openDays}d` : '-'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                        {ticketColumnVisibility.ticket_id && (
+                          <td className="px-4 py-3">
                             <button
                               onClick={() => handleTicketClick(ticket)}
-                              className="p-1 text-gray-600 hover:text-blue-600"
-                              title="View Details"
+                              className="text-primary hover:underline font-medium"
                             >
-                              <Eye size={16} />
+                              {ticket.ticket_number || ticket.id.substring(0, 8)}
                             </button>
-                            <button
-                              onClick={() => handleReassign(ticket)}
-                              className="p-1 text-gray-600 hover:text-primary"
-                              title="Reassign"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(ticket.id)}
-                              className="p-1 text-gray-600 hover:text-red-600"
-                              title="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.title && (
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs">
+                            {truncateText(ticket.title, 50)}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.description && (
+                          <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
+                            {truncateText(ticket.description, 50)}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.status && (
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusBadgeColor(ticket.status)}`}>
+                              {formatStatusLabel(ticket.status)}
+                            </span>
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.priority && (
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getPriorityBadgeColor(ticket.priority)}`}>
+                              {formatPriorityLabel(ticket.priority)}
+                            </span>
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.created && (
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {new Date(ticket.created_at).toLocaleDateString()}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.executor && (
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {ticket.executor_profile?.user?.full_name ||
+                              ticket.executor_profile?.user?.name ||
+                              ticket.executor?.user?.full_name ||
+                              '-'}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.complainant && (
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {ticket.complainant?.full_name || ticket.complainant?.email || '-'}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.category && (
+                          <td className="px-4 py-3 text-sm text-gray-700">{ticket.category}</td>
+                        )}
+
+                        {ticketColumnVisibility.sla && (
+                          <td className="px-4 py-3 text-sm">
+                            {slaStatus ? (
+                              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getSLABadgeColor(slaStatus)}`}>
+                                {formatSLA(ticket)}
+                              </span>
+                            ) : (
+                              <span className="text-gray-500">No SLA</span>
+                            )}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.updated && (
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {new Date(ticket.updated_at).toLocaleDateString()}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.last_comment && (
+                          <td className="px-4 py-3 text-sm text-gray-600 max-w-xs">
+                            {ticket.last_activity_comment ? truncateText(ticket.last_activity_comment, 40) : '-'}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.open_days && (
+                          <td className="px-4 py-3 text-sm text-gray-700">
+                            {openDays && openDays > 0 ? `${openDays}d` : '-'}
+                          </td>
+                        )}
+
+                        {ticketColumnVisibility.actions && (
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleTicketClick(ticket)}
+                                className="p-1 text-gray-600 hover:text-blue-600"
+                                title="View Details"
+                              >
+                                <Eye size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleReassign(ticket)}
+                                className="p-1 text-gray-600 hover:text-primary"
+                                title="Reassign"
+                              >
+                                <Edit size={16} />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(ticket.id)}
+                                className="p-1 text-gray-600 hover:text-red-600"
+                                title="Delete"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

@@ -33,5 +33,9 @@ export const userOnboardingService = {
       throw new Error('Failed to trigger onboarding webhook');
     }
   },
+
+  async resendOnboarding(userId: string) {
+    return this.startOnboarding(userId, 'manual_retry');
+  },
 };
 

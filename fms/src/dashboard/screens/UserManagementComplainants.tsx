@@ -4,6 +4,7 @@ import { usersService } from '../../services/users.service';
 import { designationsService } from '../../services/designations.service';
 import { useTenant } from '../../hooks/useTenant';
 import type { User, Designation } from '../../types/database';
+import { userOnboardingService } from '../../services/user-onboarding.service';
 
 interface UserManagementComplainantsProps {
   onNavigate: (page: string, userId?: string) => void;
@@ -19,6 +20,7 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
   const [selectedStatus, setSelectedStatus] = useState('');
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
+  const [resendingUserId, setResendingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -78,15 +80,16 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
     setFilteredUsers(filtered);
   };
 
-  const handleDelete = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
+  const handleDeactivateUser = async (userId: string) => {
+    if (!confirm('Deactivate this complainant? The user can be reactivated later.')) return;
 
     try {
-      await usersService.deleteUser(userId);
+      await usersService.toggleActive(userId, false);
+      alert('User deactivated successfully.');
       await loadUsers();
     } catch (err) {
-      console.error('Failed to delete user:', err);
-      alert('Failed to delete user');
+      console.error('Failed to deactivate user:', err);
+      alert('Failed to deactivate user');
     }
   };
 
@@ -97,6 +100,24 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
     } catch (err) {
       console.error('Failed to toggle user status:', err);
       alert('Failed to update user status');
+    }
+  };
+
+  const handleResendInvite = async (userId: string) => {
+    try {
+      setResendingUserId(userId);
+      await userOnboardingService.resendOnboarding(userId);
+      alert('Onboarding invite resent. Check notifications for status updates.');
+      await loadUsers();
+    } catch (err) {
+      console.error('Failed to resend onboarding invite:', err);
+      alert(
+        err instanceof Error
+          ? err.message
+          : 'Failed to resend onboarding invite. Please try again.',
+      );
+    } finally {
+      setResendingUserId(null);
     }
   };
 
@@ -268,20 +289,33 @@ export default function UserManagementComplainants({ onNavigate }: UserManagemen
                       {user.active ? 'active' : 'inactive'}
                     </button>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-3 space-x-3 whitespace-nowrap">
+                    {(() => {
+                      const onboardingStatus = ((user as any).bot_onboarding_status ?? 'not_required') as string;
+                      const shouldShowResend = ['pending', 'invited', 'awaiting_chat', 'failed'].includes(onboardingStatus);
+                      return shouldShowResend;
+                    })() && (
+                      <button
+                        onClick={() => handleResendInvite(user.id)}
+                        disabled={resendingUserId === user.id}
+                        className="text-sm text-primary hover:text-primary/80 inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed mr-3"
+                      >
+                        {resendingUserId === user.id ? 'Resending...' : 'Resend Invite'}
+                      </button>
+                    )}
                     <button
                       onClick={() => onNavigate('edit-complainant', user.id)}
-                      className="text-sm text-primary hover:text-primary/80 mr-3 inline-flex items-center"
+                      className="text-sm text-primary hover:text-primary/80 inline-flex items-center mr-3"
                     >
                       <Edit size={14} className="mr-1" />
                       Edit
                     </button>
                     <button
-                      onClick={() => handleDelete(user.id)}
+                      onClick={() => handleDeactivateUser(user.id)}
                       className="text-sm text-danger hover:text-danger/80 inline-flex items-center"
                     >
                       <Trash2 size={14} className="mr-1" />
-                      Delete
+                      Deactivate
                     </button>
                   </td>
                 </tr>

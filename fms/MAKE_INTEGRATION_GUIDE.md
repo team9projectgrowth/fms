@@ -87,7 +87,7 @@ If you prefer not to use Edge Functions, you can call the service directly throu
 
 ## 2. Sending Ticket Updates to Make (Outgoing Webhook)
 
-After ticket creation and rule engine processing, the FMS system sends ticket details to Make.
+After ticket creation and rule engine processing, the FMS system sends ticket details to Make. Each subsequent ticket activity (comments, status changes, executor updates, etc.) is also pushed through a durable queue so Make receives every change in order.
 
 ### Setup in Make:
 
@@ -105,40 +105,54 @@ After ticket creation and rule engine processing, the FMS system sends ticket de
 
 ### Webhook Payload Format:
 
-Make will receive POST requests with this structure:
+Ticket update and activity webhooks now include rich context so automations can notify complainants directly:
 
 ```json
 {
+  "tenant_id": "tenant-uuid",
+  "tenant_name": "ACME Facilities",
   "ticket_id": "uuid",
   "ticket_number": "TKT-1234",
-  "issue": "AC not working in Building A",
-  "location": "Building A, Floor 3",
-  "category": "HVAC",
-  "priority": "high",
   "status": "in-progress",
-  "sla": "2024-11-10T18:00:00Z",
-  "allocated_to": "executor-uuid",
-  "allocated_to_name": "John Smith"
+  "priority": "high",
+  "title": "AC not working in Building A",
+  "description": "Compressor offline alarm triggered",
+  "location": "Building A, Floor 3",
+  "complainant": {
+    "id": "user-uuid",
+    "name": "John Doe",
+    "email": "john.doe@example.com",
+    "phone": "+1-555-0100",
+    "chat_id": "123456789"
+  },
+  "latest_activity": {
+    "id": "activity-uuid",
+    "type": "executor_update",
+    "comment": "On site, compressor motor replaced.",
+    "metadata": {
+      "photo_count": 2
+    },
+    "created_at": "2025-11-13T10:30:00.000Z",
+    "created_by": {
+      "id": "executor-user-uuid",
+      "name": "Mike Johnson"
+    }
+  },
+  "generated_at": "2025-11-13T10:31:02.000Z"
 }
 ```
 
-**Fields:**
-- `ticket_id`: Unique ticket ID
-- `ticket_number`: Human-readable ticket number
-- `issue`: Ticket title/description
-- `location`: Location of the issue
-- `category`: Ticket category
-- `priority`: Final priority (after rule engine processing)
-- `status`: Current status ("open", "in-progress", "resolved", "closed")
-- `sla`: Due date in ISO format (if set by rule engine)
-- `allocated_to`: Executor ID (if allocated)
-- `allocated_to_name`: Executor name (if allocated)
+**Key Fields:**
+- `complainant.chat_id`: Telegram chat ID used to reach the complainant
+- `latest_activity`: Mirrors the newest row in `ticket_activities`
+- `generated_at`: Timestamp when the dispatcher sent the webhook
 
 ### When Webhooks are Sent:
 
 1. **On Ticket Creation**: After rule engine processes the ticket (priority, SLA, allocation)
 2. **On Executor Assignment**: When an executor is allocated to the ticket
 3. **On Status Change**: When ticket status changes to "resolved" or "closed"
+4. **On Ticket Activities**: Any new row in `ticket_activities` (executor updates, comments, complainant interactions, etc.)
 
 ---
 
@@ -177,16 +191,21 @@ Make → HTTP POST → FMS Edge Function
 FMS → HTTP POST → Make Webhook URL
 ```json
 {
+  "tenant_id": "tenant-uuid",
   "ticket_id": "uuid",
   "ticket_number": "TKT-1234",
-  "issue": "AC not working in Building A",
-  "location": "Building A, Floor 3",
-  "category": "HVAC",
-  "priority": "critical",
   "status": "in-progress",
-  "sla": "2024-11-10T14:00:00Z",
-  "allocated_to": "executor-uuid",
-  "allocated_to_name": "Mike Johnson"
+  "priority": "critical",
+  "title": "AC not working in Building A",
+  "location": "Building A, Floor 3",
+  "complainant": {
+    "name": "John Doe",
+    "chat_id": "123456789"
+  },
+  "latest_activity": {
+    "type": "executor_update",
+    "comment": "On site, compressor motor replaced."
+  }
 }
 ```
 
@@ -213,7 +232,8 @@ Make should handle these errors and notify the user accordingly.
 If FMS cannot send to Make webhook:
 - Error is logged but does not block ticket operations
 - Webhook failures are non-blocking
-- Check FMS logs for webhook delivery issues
+- Entries remain in `ticket_webhook_queue` and the dispatcher retries with exponential backoff
+- Check the Supabase function logs (`ticket-activity-webhook`) for detailed failure messages
 
 ---
 
@@ -275,7 +295,38 @@ curl -X POST https://<project-ref>.supabase.co/functions/v1/telegram-webhook \
 
 ---
 
-## 8. Next Steps
+## 8. Ticket Activity Dispatcher (Supabase Edge Function)
+
+### Purpose
+The `ticket-activity-webhook` edge function dequeues records from `ticket_webhook_queue` (populated by an AFTER INSERT trigger on `ticket_activities`) and posts enriched payloads to each tenant’s Automation Webhook URL. This keeps ticket transactions fast while providing retry/audit visibility.
+
+### Deployment
+```bash
+supabase functions deploy ticket-activity-webhook
+```
+
+### Scheduling
+Use a Supabase Cron job (or any scheduler) to invoke the dispatcher, for example every minute:
+```bash
+supabase functions schedule create ticket-activity-webhook \
+  --schedule "*/1 * * * *" \
+  --request-body '{}' \
+  ticket-activity-webhook
+```
+
+### Configuration
+Optional environment variables for the function:
+- `TICKET_ACTIVITY_WEBHOOK_BATCH` (default `10`)
+- `TICKET_ACTIVITY_WEBHOOK_TIMEOUT_MS` (default `10000`)
+- `TICKET_ACTIVITY_WEBHOOK_MAX_BACKOFF_MS` (default `3600000`)
+
+### Interaction with Other Webhooks
+- User onboarding continues to flow through `user-onboarding-request` using `MAKE_USER_ONBOARDING_WEBHOOK_URL`.
+- Ticket activity delivery uses only the per-tenant `Automation Webhook URL`, so onboarding and ticket notifications never interfere with one another.
+
+---
+
+## 9. Next Steps
 
 1. Deploy Supabase Edge Function
 2. Create Make scenario with HTTP module pointing to Edge Function
@@ -286,7 +337,7 @@ curl -X POST https://<project-ref>.supabase.co/functions/v1/telegram-webhook \
 
 ---
 
-## 9. Telegram Bot User Onboarding (Deep Link Email)
+## 10. Telegram Bot User Onboarding (Deep Link Email)
 
 New complainants and executors are invited to the Telegram bot through a Make scenario:
 

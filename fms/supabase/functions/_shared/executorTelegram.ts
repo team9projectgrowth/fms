@@ -113,13 +113,48 @@ async function handleIncomingMessage(
   const chatId = message.chat.id;
   const text = (message.text ?? '').trim();
 
+  if (!text) {
+    return;
+  }
+
+  const lower = text.toLowerCase();
+
+  if (lower.startsWith('/start')) {
+    const parts = text.split(/\s+/);
+    const tokenValue = parts.length > 1 ? parts[1]?.trim() : '';
+
+    if (tokenValue) {
+      try {
+        await completeOnboardingHandshake({
+          correlationId: tokenValue,
+          chatId,
+          telegramUserId: message.from?.id,
+          messageDate: message.date,
+        });
+        await safeSendMessage(
+          token,
+          chatId,
+          '✅ You are now connected to the executor bot. Send /mytickets to view your assigned tickets.',
+        );
+      } catch (err) {
+        console.error('[executor-webhook] Failed to complete onboarding handshake', err);
+        await safeSendMessage(
+          token,
+          chatId,
+          '⚠️ We could not complete your onboarding. Please request a fresh invite from your administrator.',
+        );
+      }
+      return;
+    }
+  }
+
   const context = await getExecutorContext(chatId, supabase);
 
   if (!context) {
     await safeSendMessage(
       token,
       chatId,
-      `We could not find your executor account (chat id: ${String(chatId)}). Please contact the administrator.`,
+      `We could not find your executor account (chat id: ${String(chatId)}). If you haven’t onboarded yet, please use the invite link sent to your email.`,
     );
     return;
   }
@@ -129,17 +164,17 @@ async function handleIncomingMessage(
     return;
   }
 
-  if (!text) {
+  if (lower.startsWith('/start')) {
+    await safeSendMessage(token, chatId, 'You are already connected. Send /mytickets to view your assigned tickets.');
     return;
   }
 
-  const lower = text.toLowerCase();
-  if (lower.startsWith('/start') || lower.includes('ticket')) {
+  if (lower.startsWith('/mytickets') || lower.includes('ticket')) {
     await sendTicketList(context, supabase, token);
     return;
   }
 
-  await safeSendMessage(token, chatId, 'Send /start or type "tickets" to view your assigned tickets.');
+  await safeSendMessage(token, chatId, 'Send /mytickets to view your assigned tickets, or update tickets from the dashboard.');
 }
 
 async function handleUpdateSessionMessage(
@@ -282,6 +317,55 @@ async function handleCallbackQuery(
       break;
     default:
       await answerCallbackQuery(token, callback.id, 'Unknown action.');
+  }
+}
+
+interface OnboardingCallbackOptions {
+  correlationId: string;
+  chatId: number;
+  telegramUserId?: number;
+  messageDate?: number;
+}
+
+async function completeOnboardingHandshake(options: OnboardingCallbackOptions): Promise<void> {
+  const { correlationId, chatId, telegramUserId, messageDate } = options;
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const authToken =
+    Deno.env.get('MAKE_ONBOARDING_CALLBACK_TOKEN') ?? Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+
+  if (!supabaseUrl) {
+    throw new Error('SUPABASE_URL is not configured for onboarding callback.');
+  }
+
+  if (!authToken) {
+    throw new Error('No authorization token configured for onboarding callback.');
+  }
+
+  const callbackUrl = `${supabaseUrl}/functions/v1/user-onboarding-callback`;
+  const joinedAtIso = messageDate
+    ? new Date(messageDate * 1000).toISOString()
+    : new Date().toISOString();
+
+  const payload = {
+    correlation_id: correlationId,
+    chat_id: String(chatId),
+    telegram_user_id: String(telegramUserId ?? chatId),
+    joined_at: joinedAtIso,
+    status: 'completed',
+  };
+
+  const response = await fetch(callbackUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Onboarding callback failed (${response.status}): ${bodyText}`);
   }
 }
 
