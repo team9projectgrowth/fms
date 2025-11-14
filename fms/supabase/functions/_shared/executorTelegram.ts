@@ -146,6 +146,14 @@ async function handleIncomingMessage(
       }
       return;
     }
+
+    // For existing users, /start should act as an informational hint only.
+    await safeSendMessage(
+      token,
+      chatId,
+      'You are already connected. Send /mytickets to view your assigned tickets.',
+    );
+    return;
   }
 
   const context = await getExecutorContext(chatId, supabase);
@@ -164,12 +172,7 @@ async function handleIncomingMessage(
     return;
   }
 
-  if (lower.startsWith('/start')) {
-    await safeSendMessage(token, chatId, 'You are already connected. Send /mytickets to view your assigned tickets.');
-    return;
-  }
-
-  if (lower.startsWith('/mytickets') || lower.includes('ticket')) {
+  if (lower.startsWith('/mytickets')) {
     await sendTicketList(context, supabase, token);
     return;
   }

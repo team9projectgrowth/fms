@@ -1,0 +1,2 @@
+[functions.executor-ticket-webhook]
+verify_jwt = false
