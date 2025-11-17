@@ -24,8 +24,9 @@ BEGIN
   END IF;
 END $$;
 
--- Step 3: Create the cron job
--- REPLACE 'YOUR-SERVICE-ROLE-KEY' BELOW WITH YOUR ACTUAL SERVICE ROLE KEY
+-- Step 3: Create the cron job (only if service role key is provided)
+-- NOTE: If service role key is not provided, this step will be skipped
+-- You can set up the cron job manually later using the script in scripts/setup_ticket_webhook_cron.sql
 DO $$
 DECLARE
   project_ref TEXT := 'mxrjygxhjeubisjrfmfr';
@@ -33,7 +34,27 @@ DECLARE
   service_role_key TEXT := 'YOUR-SERVICE-ROLE-KEY';  -- Get from Supabase Dashboard → Settings → API → service_role
   webhook_url TEXT;
   cron_command TEXT;
+  cron_exists BOOLEAN;
 BEGIN
+  -- Check if cron job already exists
+  SELECT EXISTS (
+    SELECT 1 FROM cron.job 
+    WHERE jobname = 'ticket-activity-webhook-dispatcher'
+  ) INTO cron_exists;
+  
+  -- If cron job already exists and is active, skip
+  IF cron_exists THEN
+    RAISE NOTICE 'Cron job already exists, skipping creation';
+    RETURN;
+  END IF;
+  
+  -- Only schedule if service role key is provided
+  IF service_role_key = 'YOUR-SERVICE-ROLE-KEY' THEN
+    RAISE NOTICE '⚠️  Service role key not provided. Cron job will not be created.';
+    RAISE NOTICE '   To set up the cron job later, run scripts/setup_ticket_webhook_cron.sql with your service role key.';
+    RETURN;
+  END IF;
+  
   -- Build webhook URL
   webhook_url := 'https://' || project_ref || '.supabase.co/functions/v1/ticket-activity-webhook';
   
@@ -43,11 +64,6 @@ BEGIN
     webhook_url,
     service_role_key
   );
-  
-  -- Only schedule if service role key is provided
-  IF service_role_key = 'YOUR-SERVICE-ROLE-KEY' THEN
-    RAISE EXCEPTION 'Please replace YOUR-SERVICE-ROLE-KEY with your actual service role key before running this migration';
-  END IF;
   
   -- Schedule the cron job
   PERFORM cron.schedule(
