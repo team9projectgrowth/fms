@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense, lazy } from 'react';
 import { useTenant } from './hooks/useTenant';
 import Navigation from './components/Navigation';
 import Footer from './components/Footer';
@@ -14,26 +14,29 @@ import RegisterPage from './pages/RegisterPage';
 import TenantRegistrationPage from './pages/TenantRegistrationPage';
 import DashboardLoginPage from './pages/DashboardLoginPage';
 import SetupAdminPage from './pages/SetupAdminPage';
-import DashboardLayout from './dashboard/DashboardLayout';
-import ExecutorDashboard from './dashboard/screens/ExecutorDashboard';
-import ExecutorTicketDetail from './dashboard/screens/ExecutorTicketDetail';
-import AdminDashboard from './dashboard/screens/AdminDashboard';
-import AdminAllTickets from './dashboard/screens/AdminAllTickets';
-import UserManagementComplainants from './dashboard/screens/UserManagementComplainants';
-import UserManagementExecutors from './dashboard/screens/UserManagementExecutors';
-import CreateEditExecutorForm from './dashboard/screens/CreateEditExecutorForm';
-import CreateEditComplainantForm from './dashboard/screens/CreateEditComplainantForm';
-import ConfigCategories from './dashboard/screens/ConfigCategories';
-import ConfigDesignations from './dashboard/screens/ConfigDesignations';
-import ConfigExecutorSkills from './dashboard/screens/ConfigExecutorSkills';
-import ConfigAllocationRules from './dashboard/screens/ConfigAllocationRules';
-import ConfigSLASettings from './dashboard/screens/ConfigSLASettings';
-import ConfigPriorityLevels from './dashboard/screens/ConfigPriorityLevels';
-import ConfigBusinessHours from './dashboard/screens/ConfigBusinessHours';
-import TenantAdminDashboard from './dashboard/screens/TenantAdminDashboard';
-import TenantTicketDashboard from './dashboard/screens/TenantTicketDashboard';
-import TenantManagement from './dashboard/screens/TenantManagement';
-import SuperAdminTenantManagement from './dashboard/screens/SuperAdminTenantManagement';
+import { authService } from './services/auth.service';
+
+// Lazy load dashboard components for code splitting
+const DashboardLayout = lazy(() => import('./dashboard/DashboardLayout'));
+const ExecutorDashboard = lazy(() => import('./dashboard/screens/ExecutorDashboard'));
+const ExecutorTicketDetail = lazy(() => import('./dashboard/screens/ExecutorTicketDetail'));
+const AdminDashboard = lazy(() => import('./dashboard/screens/AdminDashboard'));
+const AdminAllTickets = lazy(() => import('./dashboard/screens/AdminAllTickets'));
+const UserManagementComplainants = lazy(() => import('./dashboard/screens/UserManagementComplainants'));
+const UserManagementExecutors = lazy(() => import('./dashboard/screens/UserManagementExecutors'));
+const CreateEditExecutorForm = lazy(() => import('./dashboard/screens/CreateEditExecutorForm'));
+const CreateEditComplainantForm = lazy(() => import('./dashboard/screens/CreateEditComplainantForm'));
+const ConfigCategories = lazy(() => import('./dashboard/screens/ConfigCategories'));
+const ConfigDesignations = lazy(() => import('./dashboard/screens/ConfigDesignations'));
+const ConfigExecutorSkills = lazy(() => import('./dashboard/screens/ConfigExecutorSkills'));
+const ConfigAllocationRules = lazy(() => import('./dashboard/screens/ConfigAllocationRules'));
+const ConfigSLASettings = lazy(() => import('./dashboard/screens/ConfigSLASettings'));
+const ConfigPriorityLevels = lazy(() => import('./dashboard/screens/ConfigPriorityLevels'));
+const ConfigBusinessHours = lazy(() => import('./dashboard/screens/ConfigBusinessHours'));
+const TenantAdminDashboard = lazy(() => import('./dashboard/screens/TenantAdminDashboard'));
+const TenantTicketDashboard = lazy(() => import('./dashboard/screens/TenantTicketDashboard'));
+const TenantManagement = lazy(() => import('./dashboard/screens/TenantManagement'));
+const SuperAdminTenantManagement = lazy(() => import('./dashboard/screens/SuperAdminTenantManagement'));
 
 function App() {
   const { setActiveTenantId } = useTenant();
@@ -121,7 +124,6 @@ function App() {
     // Get current user's tenant_id and set it in context
     if (role === 'tenant_admin' || role === 'executor') {
       try {
-        const { authService } = await import('./services/auth.service');
         const currentUser = await authService.getCurrentUser();
         if (currentUser?.tenant_id) {
           setActiveTenantId(currentUser.tenant_id);
@@ -185,51 +187,61 @@ function App() {
   const renderDashboardContent = () => {
     if (!userRole) return null;
 
-    switch (currentPage) {
-      case 'executor-dashboard':
-        return <ExecutorDashboard onNavigate={handleNavigate} />;
-      case 'executor-ticket':
-        return <ExecutorTicketDetail ticketId={selectedTicketId || ''} onNavigate={handleNavigate} />;
-      case 'admin-dashboard':
-        return <AdminDashboard />;
-      case 'admin-tickets':
-        return <AdminAllTickets onNavigate={handleNavigate} />;
-      case 'complainants':
-        return <UserManagementComplainants key={refreshTrigger} onNavigate={handleNavigate} />;
-      case 'executors':
-        return <UserManagementExecutors key={refreshTrigger} onNavigate={handleNavigate} />;
-      case 'config-categories':
-        return <ConfigCategories />;
-      case 'config-designations':
-        return <ConfigDesignations />;
-      case 'config-executor-skills':
-        return <ConfigExecutorSkills />;
-      case 'config-allocation':
-        return <ConfigAllocationRules />;
-      case 'config-sla':
-        return <ConfigSLASettings />;
-      case 'config-priority':
-        return <ConfigPriorityLevels />;
-      case 'config-hours':
-        return <ConfigBusinessHours />;
-      case 'tenant-admin-dashboard':
-        return <TenantAdminDashboard onNavigate={handleNavigate} />;
-      case 'tenant-ticket-dashboard':
-        return <TenantTicketDashboard />;
-      case 'tenant-management':
-        return <TenantManagement onNavigate={handleNavigate} />;
-      case 'super-admin-tenants':
-        return <SuperAdminTenantManagement onNavigate={handleNavigate} />;
-      default:
-        if (userRole === 'admin') {
-          return <AdminDashboard />;
-        } else if (userRole === 'executor') {
-          return <ExecutorDashboard onNavigate={handleNavigate} />;
-        } else if (userRole === 'tenant_admin') {
-          return <TenantAdminDashboard onNavigate={handleNavigate} />;
-        }
-        return null;
-    }
+    return (
+      <Suspense fallback={
+        <div className="flex items-center justify-center h-64">
+          <div className="text-gray-500">Loading...</div>
+        </div>
+      }>
+        {(() => {
+          switch (currentPage) {
+            case 'executor-dashboard':
+              return <ExecutorDashboard onNavigate={handleNavigate} />;
+            case 'executor-ticket':
+              return <ExecutorTicketDetail ticketId={selectedTicketId || ''} onNavigate={handleNavigate} />;
+            case 'admin-dashboard':
+              return <AdminDashboard />;
+            case 'admin-tickets':
+              return <AdminAllTickets onNavigate={handleNavigate} />;
+            case 'complainants':
+              return <UserManagementComplainants key={refreshTrigger} onNavigate={handleNavigate} />;
+            case 'executors':
+              return <UserManagementExecutors key={refreshTrigger} onNavigate={handleNavigate} />;
+            case 'config-categories':
+              return <ConfigCategories />;
+            case 'config-designations':
+              return <ConfigDesignations />;
+            case 'config-executor-skills':
+              return <ConfigExecutorSkills />;
+            case 'config-allocation':
+              return <ConfigAllocationRules />;
+            case 'config-sla':
+              return <ConfigSLASettings />;
+            case 'config-priority':
+              return <ConfigPriorityLevels />;
+            case 'config-hours':
+              return <ConfigBusinessHours />;
+            case 'tenant-admin-dashboard':
+              return <TenantAdminDashboard onNavigate={handleNavigate} />;
+            case 'tenant-ticket-dashboard':
+              return <TenantTicketDashboard />;
+            case 'tenant-management':
+              return <TenantManagement onNavigate={handleNavigate} />;
+            case 'super-admin-tenants':
+              return <SuperAdminTenantManagement onNavigate={handleNavigate} />;
+            default:
+              if (userRole === 'admin') {
+                return <AdminDashboard />;
+              } else if (userRole === 'executor') {
+                return <ExecutorDashboard onNavigate={handleNavigate} />;
+              } else if (userRole === 'tenant_admin') {
+                return <TenantAdminDashboard onNavigate={handleNavigate} />;
+              }
+              return null;
+          }
+        })()}
+      </Suspense>
+    );
   };
 
   if (currentPage === 'setup') {
@@ -259,33 +271,39 @@ function App() {
 
   return (
     <>
-      <DashboardLayout userRole={userRole!} onNavigate={handleNavigate} onLogout={handleLogout}>
-        {renderDashboardContent()}
-      </DashboardLayout>
-      {showExecutorForm && (
-        <CreateEditExecutorForm
-          executorId={editExecutorId || undefined}
-          onClose={() => {
-            setShowExecutorForm(false);
-            setEditExecutorId(null);
-          }}
-          onSuccess={() => {
-            setRefreshTrigger(prev => prev + 1);
-          }}
-        />
-      )}
-      {showComplainantForm && (
-        <CreateEditComplainantForm
-          complainantId={editComplainantId || undefined}
-          onClose={() => {
-            setShowComplainantForm(false);
-            setEditComplainantId(null);
-          }}
-          onSuccess={() => {
-            setRefreshTrigger(prev => prev + 1);
-          }}
-        />
-      )}
+      <Suspense fallback={
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-gray-500">Loading...</div>
+        </div>
+      }>
+        <DashboardLayout userRole={userRole!} onNavigate={handleNavigate} onLogout={handleLogout}>
+          {renderDashboardContent()}
+        </DashboardLayout>
+        {showExecutorForm && (
+          <CreateEditExecutorForm
+            executorId={editExecutorId || undefined}
+            onClose={() => {
+              setShowExecutorForm(false);
+              setEditExecutorId(null);
+            }}
+            onSuccess={() => {
+              setRefreshTrigger(prev => prev + 1);
+            }}
+          />
+        )}
+        {showComplainantForm && (
+          <CreateEditComplainantForm
+            complainantId={editComplainantId || undefined}
+            onClose={() => {
+              setShowComplainantForm(false);
+              setEditComplainantId(null);
+            }}
+            onSuccess={() => {
+              setRefreshTrigger(prev => prev + 1);
+            }}
+          />
+        )}
+      </Suspense>
     </>
   );
 }
