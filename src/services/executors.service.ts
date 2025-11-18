@@ -6,6 +6,15 @@ import { usersService } from './users.service';
 // Note: This service uses executor_profiles table, not executors
 export const executorsService = {
   async getExecutors(tenantId?: string | null) {
+    // Determine target tenant ID
+    let targetTenantId = tenantId;
+    if (!targetTenantId) {
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
+        targetTenantId = currentUser.tenant_id;
+      }
+    }
+
     let query = supabase
       .from('executor_profiles')
       .select(`
@@ -39,14 +48,8 @@ export const executorsService = {
     // Note: executor_profiles doesn't have created_at, so we order by user data
 
     // Filter by tenant if provided
-    if (tenantId) {
-      query = query.eq('tenant_id', tenantId);
-    } else {
-      // For tenant admins, filter by their tenant
-      const currentUser = await authService.getCurrentUser();
-      if (currentUser?.role === 'tenant_admin' && currentUser.tenant_id) {
-        query = query.eq('tenant_id', currentUser.tenant_id);
-      }
+    if (targetTenantId) {
+      query = query.eq('tenant_id', targetTenantId);
     }
 
     const { data, error } = await query;
@@ -56,7 +59,77 @@ export const executorsService = {
       throw error;
     }
     
-    return (data || []) as ExecutorProfileWithUser[];
+    const profiles = (data || []) as ExecutorProfileWithUser[];
+    
+    // Ensure tenant admins are included in the executor list
+    if (targetTenantId) {
+      try {
+        // Get tenant admins for this tenant
+        const { data: tenantAdmins, error: tenantAdminsError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('role', 'tenant_admin')
+          .eq('tenant_id', targetTenantId)
+          .eq('is_active', true);
+
+        if (!tenantAdminsError && tenantAdmins && tenantAdmins.length > 0) {
+          const existingUserIds = new Set(profiles.map(p => p.user_id));
+          let hasDefaultExecutor = profiles.some(p => (p as any).is_default_executor === true);
+          
+          for (const tenantAdmin of tenantAdmins) {
+            if (!existingUserIds.has(tenantAdmin.id)) {
+              // Create executor profile for tenant admin if missing
+              try {
+                const newProfile = await this.createExecutor({
+                  tenant_id: targetTenantId,
+                  user_id: tenantAdmin.id,
+                  availability_status: 'available',
+                  max_concurrent_tickets: 10,
+                  full_name: tenantAdmin.full_name || tenantAdmin.email,
+                });
+                
+                // Set as default executor if no default exists
+                if (!hasDefaultExecutor) {
+                  await this.updateExecutor(newProfile.id, {
+                    is_default_executor: true,
+                  } as any);
+                  (newProfile as any).is_default_executor = true;
+                  hasDefaultExecutor = true; // Update flag after setting default
+                }
+                
+                // Fetch full profile with relations
+                const fullProfile = await this.getExecutorById(newProfile.id);
+                if (fullProfile) {
+                  profiles.push(fullProfile);
+                }
+              } catch (createError) {
+                console.error(`Error creating executor profile for tenant admin ${tenantAdmin.id}:`, createError);
+                // Continue with other tenant admins if one fails
+              }
+            } else {
+              // Tenant admin already has profile - ensure they're default if no default exists
+              const existingProfile = profiles.find(p => p.user_id === tenantAdmin.id);
+              if (existingProfile && !hasDefaultExecutor && !(existingProfile as any).is_default_executor) {
+                try {
+                  await this.updateExecutor(existingProfile.id, {
+                    is_default_executor: true,
+                  } as any);
+                  (existingProfile as any).is_default_executor = true;
+                  hasDefaultExecutor = true; // Update flag after setting default
+                } catch (updateError) {
+                  console.error(`Error setting tenant admin as default executor:`, updateError);
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        // Log error but don't fail the entire request
+        console.error('Error ensuring tenant admins are included:', err);
+      }
+    }
+    
+    return profiles;
   },
 
   async getExecutorById(id: string) {

@@ -9,6 +9,7 @@ import {
   Filter,
   ArrowUpDown,
   Columns3,
+  Star,
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { executorsService } from '../../services/executors.service';
@@ -388,6 +389,42 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
       alert(err instanceof Error ? err.message : 'Failed to resend onboarding invite. Please try again.');
     } finally {
       setResendingUserId(null);
+    }
+  };
+
+  const handleSetAsDefault = async (executorId: string) => {
+    try {
+      const executor = executors.find(e => e.id === executorId);
+      if (!executor) {
+        alert('Executor not found');
+        return;
+      }
+
+      // Get the executor profile ID (executor.id is the profile ID)
+      const profileId = executorId;
+      
+      // Check if already default
+      const isCurrentlyDefault = (executor as any).is_default_executor === true;
+      
+      if (isCurrentlyDefault) {
+        // Unset as default
+        await executorsService.updateExecutor(profileId, {
+          is_default_executor: false,
+        });
+        alert('Default executor removed');
+      } else {
+        // Set as default (trigger will unset others)
+        await executorsService.updateExecutor(profileId, {
+          is_default_executor: true,
+        });
+        alert('Default executor updated successfully');
+      }
+
+      // Reload executors to reflect the change
+      await loadExecutors();
+    } catch (error) {
+      console.error('Error setting default executor:', error);
+      alert('Failed to set default executor: ' + (error instanceof Error ? error.message : 'Unknown error'));
     }
   };
 
@@ -972,6 +1009,26 @@ export default function UserManagementExecutors({ onNavigate }: UserManagementEx
                                   : 'Resend Invite'}
                               </button>
                             )}
+                            <button
+                              onClick={() => handleSetAsDefault(executor.id)}
+                              className={`p-2 rounded transition-colors ${
+                                (executor as any).is_default_executor
+                                  ? 'text-primary hover:bg-primary/10'
+                                  : 'text-gray-500 hover:bg-gray-100'
+                              }`}
+                              title={
+                                (executor as any).is_default_executor
+                                  ? 'Default executor (click to remove)'
+                                  : 'Set as default executor for unassigned tickets'
+                              }
+                            >
+                              <Star
+                                size={16}
+                                className={(
+                                  executor as any
+                                ).is_default_executor ? 'fill-current' : ''}
+                              />
+                            </button>
                             <button
                               onClick={() => onNavigate('edit-executor', executor.id)}
                               className="p-2 text-gray-700 hover:bg-gray-100 rounded transition-colors"
