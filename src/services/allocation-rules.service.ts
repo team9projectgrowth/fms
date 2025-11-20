@@ -276,17 +276,27 @@ export const allocationRulesService = {
   /**
    * Create a condition
    */
-  async createCondition(input: CreateRuleConditionInput): Promise<RuleCondition> {
-    // Get current user's tenant_id
-    const currentUser = await authService.getCurrentUser();
-    if (!currentUser?.tenant_id && currentUser?.role !== 'admin') {
-      throw new Error('Tenant ID is required for non-admin users');
+  async createCondition(input: CreateRuleConditionInput, tenantId?: string | null): Promise<RuleCondition> {
+    // Determine tenant ID
+    let effectiveTenantId = tenantId;
+
+    if (!effectiveTenantId) {
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser?.tenant_id) {
+        effectiveTenantId = currentUser.tenant_id;
+      } else if (currentUser?.role !== 'admin') {
+        throw new Error('Tenant ID is required for non-admin users');
+      }
+    }
+
+    if (!effectiveTenantId) {
+      throw new Error('Please select a tenant before creating conditions.');
     }
 
     const { data, error } = await supabase
       .from('conditions')
       .insert({
-        tenant_id: currentUser?.tenant_id || null,
+        tenant_id: effectiveTenantId,
         rule_id: input.rule_id,
         field_path: input.field_path,
         operator: input.operator,
@@ -364,17 +374,27 @@ export const allocationRulesService = {
   /**
    * Create an action
    */
-  async createAction(input: CreateRuleActionInput): Promise<RuleAction> {
-    // Get current user's tenant_id
-    const currentUser = await authService.getCurrentUser();
-    if (!currentUser?.tenant_id && currentUser?.role !== 'admin') {
-      throw new Error('Tenant ID is required for non-admin users');
+  async createAction(input: CreateRuleActionInput, tenantId?: string | null): Promise<RuleAction> {
+    // Determine tenant ID
+    let effectiveTenantId = tenantId;
+
+    if (!effectiveTenantId) {
+      const currentUser = await authService.getCurrentUser();
+      if (currentUser?.tenant_id) {
+        effectiveTenantId = currentUser.tenant_id;
+      } else if (currentUser?.role !== 'admin') {
+        throw new Error('Tenant ID is required for non-admin users');
+      }
+    }
+
+    if (!effectiveTenantId) {
+      throw new Error('Please select a tenant before creating actions.');
     }
 
     const { data, error } = await supabase
       .from('actions')
       .insert({
-        tenant_id: currentUser?.tenant_id || null,
+        tenant_id: effectiveTenantId,
         rule_id: input.rule_id,
         action_type: input.action_type,
         action_params: input.action_params,

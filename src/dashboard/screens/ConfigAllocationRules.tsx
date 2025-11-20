@@ -178,27 +178,33 @@ export default function ConfigAllocationRules() {
 
         // Create new conditions
         for (const condition of conditions) {
-          await allocationRulesService.createCondition({
-            rule_id: editingRule.id,
-            field_path: condition.field_path,
-            operator: condition.operator,
-            value: condition.value,
-            sequence: condition.sequence,
-            group_id: condition.group_id,
-            logical_operator: condition.logical_operator,
-          });
+          await allocationRulesService.createCondition(
+            {
+              rule_id: editingRule.id,
+              field_path: condition.field_path,
+              operator: condition.operator,
+              value: condition.value,
+              sequence: condition.sequence,
+              group_id: condition.group_id,
+              logical_operator: condition.logical_operator,
+            },
+            activeTenantId,
+          );
         }
 
         // Create new actions
         for (const action of actions) {
-          await allocationRulesService.createAction({
-            rule_id: editingRule.id,
-            action_type: action.action_type,
-            action_params: action.action_params,
-            step_order: action.step_order,
-            trigger_after_minutes: action.trigger_after_minutes,
-            action_condition: action.action_condition,
-          });
+          await allocationRulesService.createAction(
+            {
+              rule_id: editingRule.id,
+              action_type: action.action_type,
+              action_params: action.action_params,
+              step_order: action.step_order,
+              trigger_after_minutes: action.trigger_after_minutes,
+              action_condition: action.action_condition,
+            },
+            activeTenantId,
+          );
         }
 
         setSuccessMessage('Rule updated successfully!');

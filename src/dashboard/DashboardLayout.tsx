@@ -14,7 +14,7 @@ export default function DashboardLayout({ children, userRole, onNavigate, onLogo
     <div className="flex h-screen bg-gray-100">
       <DashboardSidebar userRole={userRole} onNavigate={onNavigate} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <DashboardHeader onLogout={onLogout} />
+        <DashboardHeader onLogout={onLogout} userRole={userRole} />
         <main className="flex-1 overflow-y-auto p-8">
           {children}
         </main>
