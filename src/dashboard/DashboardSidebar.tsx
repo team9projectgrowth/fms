@@ -1,4 +1,4 @@
-import { LayoutDashboard, Ticket, Users, Settings, FileText, ClipboardList, Building, Shield, UserCog } from 'lucide-react';
+import { LayoutDashboard, Ticket, Users, Settings, FileText, ClipboardList, Building, Shield, UserCog, Lock } from 'lucide-react';
 
 interface DashboardSidebarProps {
   userRole: 'admin' | 'executor' | 'complainant' | 'tenant_admin';
@@ -9,6 +9,7 @@ export default function DashboardSidebar({ userRole, onNavigate }: DashboardSide
   const adminMenu = [
     { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'super-admin-tenants', label: 'Tenant Management', icon: Shield },
+    { id: 'change-password', label: 'Change Password', icon: Lock },
     { id: 'admin-tickets', label: 'All Tickets', icon: Ticket },
     { id: 'complainants', label: 'Complainants', icon: Users },
     { id: 'executors', label: 'Executors', icon: Building },

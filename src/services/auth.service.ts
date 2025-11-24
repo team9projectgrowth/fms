@@ -127,6 +127,38 @@ export const authService = {
     return supabase.auth.onAuthStateChange(callback);
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    // Get current user to get their email
+    const currentUser = await this.getCurrentUser();
+    if (!currentUser) {
+      throw new Error('User not authenticated');
+    }
+
+    // Verify current password by attempting sign-in
+    const { error: verifyError } = await supabase.auth.signInWithPassword({
+      email: currentUser.email,
+      password: currentPassword,
+    });
+
+    if (verifyError) {
+      throw new Error('Current password is incorrect');
+    }
+
+    // Validate new password length
+    if (newPassword.length < 8) {
+      throw new Error('New password must be at least 8 characters long');
+    }
+
+    // Update password
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (updateError) {
+      throw new Error(updateError.message || 'Failed to update password');
+    }
+  },
+
   async signUp(email: string, password: string, metadata?: { name?: string; user_type?: string }): Promise<{ user: AuthUser }> {
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,

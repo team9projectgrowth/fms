@@ -34,6 +34,7 @@ import TenantAdminDashboard from './dashboard/screens/TenantAdminDashboard';
 import TenantTicketDashboard from './dashboard/screens/TenantTicketDashboard';
 import TenantManagement from './dashboard/screens/TenantManagement';
 import SuperAdminTenantManagement from './dashboard/screens/SuperAdminTenantManagement';
+import ChangePassword from './dashboard/screens/ChangePassword';
 
 function App() {
   const { setActiveTenantId } = useTenant();
@@ -220,6 +221,8 @@ function App() {
         return <TenantManagement onNavigate={handleNavigate} />;
       case 'super-admin-tenants':
         return <SuperAdminTenantManagement onNavigate={handleNavigate} />;
+      case 'change-password':
+        return <ChangePassword onNavigate={handleNavigate} />;
       default:
         if (userRole === 'admin') {
           return <AdminDashboard />;
