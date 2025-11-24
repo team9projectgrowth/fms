@@ -104,6 +104,7 @@ export interface ExecutorProfile {
   category_id?: string;
   assigned_tickets_count: number;
   open_tickets_count: number;
+  is_default_executor?: boolean;
 }
 
 export interface ExecutorProfileWithUser extends ExecutorProfile {

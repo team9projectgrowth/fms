@@ -578,12 +578,31 @@ export const ruleEngineService = {
           return String(exec.category.name).toLowerCase() === ticketCategoryName;
         });
       }
+
+      // ❌ REMOVED: Never fall back - let rule engine handle unassigned tickets
+      if (filteredExecutors.length === 0) {
+        console.warn('[RuleEngine] assignExecutor:no-skill-match - ticket will remain unassigned', {
+          ticketId: ticket.id,
+          strategy: config.strategy,
+          ticketCategoryId,
+          ticketCategoryName,
+          requestedCategories,
+        });
+        return; // Exit early - don't assign to anyone
+      }
+    } else {
+      // For load_balance, round_robin - also don't fall back if no match
+      // Only assign if we have filtered executors
+      if (filteredExecutors.length === 0) {
+        console.warn('[RuleEngine] assignExecutor:no-executors-found - ticket will remain unassigned', {
+          ticketId: ticket.id,
+          strategy: config.strategy,
+        });
+        return;
+      }
     }
 
-    if (filteredExecutors.length === 0) {
-      filteredExecutors = capacityExecutors;
-    }
-
+    // At this point, filteredExecutors should have at least one executor
     if (filteredExecutors.length === 0) {
       console.warn('[RuleEngine] assignExecutor:no-capacity', {
         ticketId: ticket.id,

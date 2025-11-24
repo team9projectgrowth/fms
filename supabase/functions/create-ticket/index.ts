@@ -69,7 +69,9 @@ type ActionType =
   | 'set_due_date'
   | 'escalate'
   | 'notify'
-  | 'set_status';
+  | 'set_status'
+  | 'set_category_to_miscellaneous'
+  | 'assign_to_default_admin';
 
 interface RpcResponse {
   success: boolean;
@@ -361,6 +363,21 @@ async function processTicket(
     const tenantId = ticket.tenant_id;
     const rules = await fetchActiveRules(supabase, tenantId, triggerEvent);
     if (!rules.length) {
+      // If no rules configured, check if ticket is unassigned and assign to default executor
+      if (!ticket.executor_profile_id) {
+        console.info('[create-ticket] No rules configured, attempting default executor assignment', {
+          ticketId,
+          tenantId,
+        });
+        try {
+          await executeAssignToDefaultAdmin(supabase, ticket);
+        } catch (defaultAssignError) {
+          console.warn('[create-ticket] Failed to assign to default executor', {
+            ticketId,
+            error: defaultAssignError,
+          });
+        }
+      }
       return { success: true };
     }
 
@@ -423,6 +440,28 @@ async function processTicket(
             error: ruleError,
           });
         }
+      }
+    }
+
+    // After all rules have been processed, check if ticket is still unassigned
+    // and assign to default executor if available
+    const updatedTicket = await fetchTicket(supabase, ticketId);
+    if (updatedTicket && !updatedTicket.executor_profile_id) {
+      console.info('[create-ticket] Ticket still unassigned after rules, attempting default executor assignment', {
+        ticketId,
+        tenantId: updatedTicket.tenant_id,
+      });
+      try {
+        await executeAssignToDefaultAdmin(supabase, updatedTicket);
+        console.info('[create-ticket] Default executor assignment attempted for unassigned ticket', {
+          ticketId,
+        });
+      } catch (defaultAssignError) {
+        console.warn('[create-ticket] Failed to assign to default executor', {
+          ticketId,
+          error: defaultAssignError,
+        });
+        // Don't fail the entire process if default assignment fails
       }
     }
 
@@ -719,6 +758,14 @@ async function executeActions(
           await executeSetStatus(supabase, ticket, params);
           actionsExecuted.push({ action: 'set_status', params });
           break;
+        case 'set_category_to_miscellaneous':
+          await executeSetCategoryToMiscellaneous(supabase, ticket, ticket.tenant_id);
+          actionsExecuted.push({ action: 'set_category_to_miscellaneous', params: {} });
+          break;
+        case 'assign_to_default_admin':
+          await executeAssignToDefaultAdmin(supabase, ticket);
+          actionsExecuted.push({ action: 'assign_to_default_admin', params: {} });
+          break;
         case 'escalate':
         case 'notify':
           console.info('[create-ticket] Action not implemented in edge function', action.action_type);
@@ -763,7 +810,7 @@ async function executeAssignExecutor(
         availability_status,
         assigned_tickets_count,
         open_tickets_count,
-        user:users!executor_profiles_user_id_fkey(id, is_active),
+        user:users!executor_profiles_user_id_fkey(id, is_active, role),
         category:categories!executor_profiles_category_id_fkey(id, name)
       `,
     )
@@ -818,21 +865,30 @@ async function executeAssignExecutor(
         return executorSkills.some((skill: string) => requiredSkillIds.has(skill));
       });
 
+      // ❌ REMOVED: Never fall back to all executors - let rule engine handle unassigned tickets
       if (!filteredExecutors.length) {
-        filteredExecutors = statusEligibleExecutors;
+        console.warn('[create-ticket] No executors found with matching skills - ticket will remain unassigned', {
+          ticketId: ticket.id,
+          strategy,
+          ticketCategoryId,
+          ticketCategoryName,
+          requestedSkillIds: params.skill_ids ?? [],
+        });
+        return; // Exit early - don't assign to anyone
       }
     }
   }
 
+  // ❌ REMOVED: Never fall back - let rule engine handle unassigned tickets
   if (!filteredExecutors.length) {
-    console.warn('[create-ticket] No executors found with matching skills', {
+    console.warn('[create-ticket] No executors found - ticket will remain unassigned', {
       ticketId: ticket.id,
       strategy,
       ticketCategoryId,
       ticketCategoryName,
       requestedSkillIds: params.skill_ids ?? [],
     });
-    filteredExecutors = statusEligibleExecutors;
+    return; // Exit early - don't assign to anyone
   }
 
   const executorIdsForLoad = statusEligibleExecutors
@@ -1057,6 +1113,218 @@ async function logRuleExecution(
 
   if (error) {
     console.error('[create-ticket] Failed to log rule execution', error);
+  }
+}
+
+/**
+ * Find default executor for unassigned tickets
+ * Returns executor_profile_id of the executor marked as default
+ */
+async function findDefaultAdminExecutor(
+  supabase: SupabaseClient,
+  tenantId: string | null,
+): Promise<string | null> {
+  try {
+    // Find executor marked as default
+    let query = supabase
+      .from('executor_profiles')
+      .select(
+        `
+        id,
+        tenant_id,
+        user_id,
+        availability_status,
+        user:users!executor_profiles_user_id_fkey(id, is_active)
+      `,
+      )
+      .eq('is_default_executor', true)
+      .eq('availability_status', 'available');
+
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId);
+    }
+
+    const { data: defaultExecutors, error } = await query;
+
+    if (error) {
+      console.error('[create-ticket] Error finding default executor', error);
+      return null;
+    }
+
+    if (!defaultExecutors || defaultExecutors.length === 0) {
+      console.warn('[create-ticket] No default executor found', {
+        tenantId,
+      });
+      return null;
+    }
+
+    // Filter by active user
+    const eligibleDefault = defaultExecutors.find((exec: any) => {
+      return exec.user?.is_active === true;
+    });
+
+    if (!eligibleDefault) {
+      console.warn('[create-ticket] Default executor found but user is not active', {
+        tenantId,
+      });
+      return null;
+    }
+
+    return eligibleDefault.id;
+  } catch (err) {
+    console.error('[create-ticket] Unexpected error finding default executor', err);
+    return null;
+  }
+}
+
+/**
+ * Set category to "Miscellaneous" if category is invalid/unknown
+ */
+async function executeSetCategoryToMiscellaneous(
+  supabase: SupabaseClient,
+  ticket: TicketRecord,
+  tenantId: string | null,
+): Promise<void> {
+  try {
+    // Find or create "Miscellaneous" category
+    let { data: miscCategory, error: categoryError } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('name', 'Miscellaneous')
+      .maybeSingle();
+
+    if (tenantId) {
+      // Try tenant-specific first
+      const { data: tenantMiscCategory, error: tenantError } = await supabase
+        .from('categories')
+        .select('id')
+        .eq('name', 'Miscellaneous')
+        .eq('tenant_id', tenantId)
+        .maybeSingle();
+
+      if (!tenantError && tenantMiscCategory) {
+        miscCategory = tenantMiscCategory;
+        categoryError = null;
+      }
+    }
+
+    if (categoryError) {
+      console.error('[create-ticket] Error finding Miscellaneous category', categoryError);
+      return;
+    }
+
+    // Create category if it doesn't exist
+    if (!miscCategory) {
+      const { data: newCategory, error: createError } = await supabase
+        .from('categories')
+        .insert({
+          name: 'Miscellaneous',
+          description: 'Miscellaneous tickets without a specific category',
+          is_active: true,
+          tenant_id: tenantId,
+        })
+        .select('id')
+        .single();
+
+      if (createError) {
+        console.error('[create-ticket] Error creating Miscellaneous category', createError);
+        return;
+      }
+      miscCategory = newCategory;
+    }
+
+    // Update ticket category
+    const { error: updateError } = await supabase
+      .from('tickets')
+      .update({
+        category_id: miscCategory.id,
+        category: 'Miscellaneous',
+      })
+      .eq('id', ticket.id);
+
+    if (updateError) {
+      console.error('[create-ticket] Error updating ticket category', updateError);
+    } else {
+      ticket.category = 'Miscellaneous';
+      (ticket as any).category_id = miscCategory.id;
+    }
+  } catch (err) {
+    console.error('[create-ticket] Unexpected error setting category to Miscellaneous', err);
+  }
+}
+
+/**
+ * Assign ticket to default admin executor
+ */
+async function executeAssignToDefaultAdmin(
+  supabase: SupabaseClient,
+  ticket: TicketRecord,
+): Promise<void> {
+  try {
+    const adminExecutorId = await findDefaultAdminExecutor(supabase, ticket.tenant_id);
+
+    if (!adminExecutorId) {
+      console.warn('[create-ticket] No admin executor found for default assignment', {
+        ticketId: ticket.id,
+        tenantId: ticket.tenant_id,
+      });
+      return;
+    }
+
+    // Get executor details
+    const { data: executor, error: executorError } = await supabase
+      .from('executor_profiles')
+      .select('id, user_id')
+      .eq('id', adminExecutorId)
+      .single();
+
+    if (executorError || !executor) {
+      console.error('[create-ticket] Error fetching admin executor', executorError);
+      return;
+    }
+
+    // Assign ticket
+    const { error: updateError } = await supabase
+      .from('tickets')
+      .update({
+        executor_profile_id: adminExecutorId,
+        executor_id: executor.user_id || null,
+      })
+      .eq('id', ticket.id);
+
+    if (updateError) {
+      throw updateError;
+    }
+
+    // Update executor load counters
+    const { data: currentExecutor, error: loadError } = await supabase
+      .from('executor_profiles')
+      .select('assigned_tickets_count, open_tickets_count')
+      .eq('id', adminExecutorId)
+      .single();
+
+    if (!loadError && currentExecutor) {
+      const newAssignedCount = ((currentExecutor.assigned_tickets_count as number | undefined) ?? 0) + 1;
+      const newOpenCount = ((currentExecutor.open_tickets_count as number | undefined) ?? 0) + 1;
+
+      await supabase
+        .from('executor_profiles')
+        .update({
+          assigned_tickets_count: newAssignedCount,
+          open_tickets_count: newOpenCount,
+        })
+        .eq('id', adminExecutorId);
+    }
+
+    ticket.executor_profile_id = adminExecutorId;
+    ticket.executor_id = executor.user_id || null;
+
+    console.info('[create-ticket] Assigned ticket to default admin executor', {
+      ticketId: ticket.id,
+      adminExecutorId,
+    });
+  } catch (err) {
+    console.error('[create-ticket] Error assigning to default admin', err);
   }
 }
 
